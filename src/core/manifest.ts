@@ -115,7 +115,7 @@ export function isUnmanagedCollision(
  */
 export interface DriftResult {
   entry: ManifestEntry;
-  status: "ok" | "missing" | "modified" | "unlinked";
+  status: "ok" | "missing" | "modified" | "unlinked" | "broken";
 }
 
 export function detectDrift(
@@ -143,6 +143,13 @@ export function detectDrift(
 
     // Check hash — for symlinks, check source; for copy/generate, check target
     const hashPath = entry.mode === "symlink" ? entry.sourcePath : fullPath;
+
+    // For symlinks, if source file was deleted, it's a broken symlink
+    if (entry.mode === "symlink" && !fileExists(hashPath) && !isDirectory(hashPath)) {
+      results.push({ entry, status: "broken" });
+      continue;
+    }
+
     const currentHash = isDirectory(hashPath)
       ? hashDir(hashPath)
       : hashFile(hashPath);

@@ -9,6 +9,7 @@
  */
 
 import { Command } from "commander";
+import chalk from "chalk";
 import {
   resolveContexts,
   requireScopeForName,
@@ -19,7 +20,13 @@ import { getContext } from "../../core/discovery.js";
 import { loadResolvedLoadout } from "../../core/resolve.js";
 import { loadState } from "../../core/manifest.js";
 import { log, heading, keyValue } from "../../lib/output.js";
-import chalk from "chalk";
+import {
+  getArtifactName,
+  sortArtifacts,
+  truncatePath,
+  getToolColumns,
+  calculateColumnWidths,
+} from "../../lib/artifact-table.js";
 import type { CommandContext, ResolvedItem, Tool } from "../../core/types.js";
 import { registry } from "../../core/registry.js";
 import {
@@ -32,32 +39,6 @@ import {
 // Kinds whose content goes into the agent's context window.
 // Extensions (runtime code) and themes (UI config) don't count.
 const CONTEXT_KINDS = new Set(["rule", "skill", "instruction", "prompt"]);
-
-const MIN_KIND_W = 4; // minimum kind column width
-
-// Sort order for artifact kinds in info display
-// Prioritizes context-heavy kinds first, then alphabetical for the rest
-const KIND_SORT_ORDER: Record<string, number> = {
-  instruction: 0,
-  rule: 1,
-  skill: 2,
-  prompt: 3,  // slash commands
-  // Everything else gets 100, sorted alphabetically within that tier
-};
-
-/**
- * Sort items by kind priority, then alphabetically by path within each kind.
- */
-function sortItems(items: ResolvedItem[]): ResolvedItem[] {
-  return [...items].sort((a, b) => {
-    const orderA = KIND_SORT_ORDER[a.kind] ?? 100;
-    const orderB = KIND_SORT_ORDER[b.kind] ?? 100;
-    if (orderA !== orderB) return orderA - orderB;
-    // Within same priority tier, sort by kind name then path
-    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
-    return a.relativePath.localeCompare(b.relativePath);
-  });
-}
 
 /**
  * Token breakdown for a resolved item.
@@ -92,6 +73,30 @@ function getItemTokens(item: ResolvedItem): TokenBreakdown {
   return { upfront: total, lazy: 0 };
 }
 
+/**
+ * Artifact row with computed display name and tokens.
+ */
+interface ArtifactInfo {
+  kind: string;
+  name: string;
+  relativePath: string;
+  tools: Tool[];
+  tokens: TokenBreakdown;
+}
+
+/**
+ * Transform resolved items into artifact info for display.
+ */
+function toArtifactInfo(items: ResolvedItem[]): ArtifactInfo[] {
+  return items.map((item) => ({
+    kind: item.kind,
+    name: getArtifactName(item.relativePath, item.kind),
+    relativePath: item.relativePath,
+    tools: item.tools,
+    tokens: getItemTokens(item),
+  }));
+}
+
 function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
   if (items.length === 0) {
     log.dim("  No artifacts.");
@@ -99,88 +104,70 @@ function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
     return;
   }
 
-  // Sort items by kind priority, then alphabetically
-  const sortedItems = sortItems(items);
+  // Transform and sort items
+  const artifacts = sortArtifacts(toArtifactInfo(items));
 
-  // Pre-compute tokens for context kinds
-  const itemTokens = new Map<ResolvedItem, TokenBreakdown>();
+  // Pre-compute token totals
   let totalUpfront = 0;
   let totalLazy = 0;
-  for (const item of sortedItems) {
-    const tokens = getItemTokens(item);
-    itemTokens.set(item, tokens);
-    totalUpfront += tokens.upfront;
-    totalLazy += tokens.lazy;
+  for (const artifact of artifacts) {
+    totalUpfront += artifact.tokens.upfront;
+    totalLazy += artifact.tokens.lazy;
   }
 
   // Check if any items have tokens to show
   const hasTokens = totalUpfront > 0 || totalLazy > 0;
   const hasLazy = totalLazy > 0;
 
-  // Dynamic column widths based on actual content
-  const KIND_W = Math.max(
-    MIN_KIND_W,
-    "kind".length,
-    ...sortedItems.map((i) => i.kind.length)
-  );
-  const maxPathLen = Math.max(
-    "artifact".length,
-    ...sortedItems.map((i) => i.relativePath.length)
-  );
-  const PATH_W = Math.min(maxPathLen, 45);
+  // Calculate column widths
+  const { kindWidth, nameWidth } = calculateColumnWidths(artifacts);
+  const toolCols = getToolColumns(tools);
 
   // Token column widths (right-aligned numbers)
   const TOKEN_W = hasTokens ? 7 : 0;
   const LAZY_W = hasLazy ? 7 : 0;
 
-  // Tool columns: width = tool name length (min 2)
-  const toolCols = tools.map((t) => ({ tool: t, w: Math.max(t.length, 2) }));
-
   // ── Header ───────────────────────────────────────────────────────────────
-  const kindH = chalk.dim("kind".padEnd(KIND_W));
-  const pathH = chalk.dim("artifact".padEnd(PATH_W));
+  const kindH = chalk.dim("kind".padEnd(kindWidth));
+  const nameH = chalk.dim("artifact".padEnd(nameWidth));
   const upfrontH = hasTokens ? chalk.dim("upfront".padStart(TOKEN_W)) + "  " : "";
   const lazyH = hasLazy ? chalk.dim("lazy".padStart(LAZY_W)) + "  " : "";
   const toolH = toolCols.map((c) => chalk.dim(c.tool)).join("  ");
-  console.log(`  ${kindH}  ${pathH}  ${upfrontH}${lazyH}${toolH}`);
+  console.log(`  ${kindH}  ${nameH}  ${upfrontH}${lazyH}${toolH}`);
 
   // ── Separator ─────────────────────────────────────────────────────────────
-  const sep = [
-    "─".repeat(KIND_W),
-    "─".repeat(PATH_W),
+  const sepParts = [
+    "─".repeat(kindWidth),
+    "─".repeat(nameWidth),
     ...(hasTokens ? ["─".repeat(TOKEN_W)] : []),
     ...(hasLazy ? ["─".repeat(LAZY_W)] : []),
-    toolCols.map((c) => "─".repeat(c.w)).join("  "),
-  ].join("  ");
-  console.log(chalk.dim(`  ${sep}`))
+    toolCols.map((c) => "─".repeat(c.width)).join("  "),
+  ];
+  console.log(chalk.dim(`  ${sepParts.join("  ")}`));
 
   // ── Rows ──────────────────────────────────────────────────────────────────
-  for (const item of sortedItems) {
-    const kindCell = chalk.dim(item.kind.padEnd(KIND_W));
-
-    // Truncate long paths with a leading ellipsis
-    const displayPath =
-      item.relativePath.length > PATH_W
-        ? "…" + item.relativePath.slice(-(PATH_W - 1))
-        : item.relativePath;
-    const pathCell = displayPath.padEnd(PATH_W);
+  for (const artifact of artifacts) {
+    const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
+    const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
 
     // Token cells (upfront and lazy)
     let upfrontCell = "";
     let lazyCell = "";
     if (hasTokens) {
-      const tokens = itemTokens.get(item) ?? { upfront: 0, lazy: 0 };
-      if (tokens.upfront > 0) {
-        const formatted = tokens.upfront >= 1000 ? `${(tokens.upfront / 1000).toFixed(1)}k` : String(tokens.upfront);
+      if (artifact.tokens.upfront > 0) {
+        const formatted = artifact.tokens.upfront >= 1000
+          ? `${(artifact.tokens.upfront / 1000).toFixed(1)}k`
+          : String(artifact.tokens.upfront);
         upfrontCell = chalk.cyan(formatted.padStart(TOKEN_W)) + "  ";
       } else {
         upfrontCell = chalk.dim("—".padStart(TOKEN_W)) + "  ";
       }
     }
     if (hasLazy) {
-      const tokens = itemTokens.get(item) ?? { upfront: 0, lazy: 0 };
-      if (tokens.lazy > 0) {
-        const formatted = tokens.lazy >= 1000 ? `${(tokens.lazy / 1000).toFixed(1)}k` : String(tokens.lazy);
+      if (artifact.tokens.lazy > 0) {
+        const formatted = artifact.tokens.lazy >= 1000
+          ? `${(artifact.tokens.lazy / 1000).toFixed(1)}k`
+          : String(artifact.tokens.lazy);
         lazyCell = chalk.yellow(formatted.padStart(LAZY_W)) + "  ";
       } else {
         lazyCell = chalk.dim("—".padStart(LAZY_W)) + "  ";
@@ -191,15 +178,15 @@ function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
     // Only show ✓ if the tool actually supports this kind (has a mapping)
     const toolCells = toolCols
       .map((c) => {
-        const hasMapping = registry.resolveMapping(c.tool, item.kind);
-        if (item.tools.includes(c.tool) && hasMapping) {
-          return chalk.green("✓") + " ".repeat(c.w - 1);
+        const hasMapping = registry.resolveMapping(c.tool, artifact.kind);
+        if (artifact.tools.includes(c.tool) && hasMapping) {
+          return chalk.green("✓") + " ".repeat(c.width - 1);
         }
-        return " ".repeat(c.w);
+        return " ".repeat(c.width);
       })
       .join("  ");
 
-    console.log(`  ${kindCell}  ${pathCell}  ${upfrontCell}${lazyCell}${toolCells}`);
+    console.log(`  ${kindCell}  ${nameCell}  ${upfrontCell}${lazyCell}${toolCells}`);
   }
 
   // ── Footer with totals ────────────────────────────────────────────────────

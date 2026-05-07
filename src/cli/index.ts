@@ -27,6 +27,7 @@ import { editCommand } from "./commands/edit.js";
 import { kindsCommand } from "./commands/kinds.js";
 import { docsCommand } from "./commands/docs.js";
 import { sanitizeCommand } from "./commands/sanitize.js";
+import { fallbackCommand } from "./commands/fallback.js";
 
 // ---------------------------------------------------------------------------
 // Command groups — controls help output order and section headers
@@ -54,6 +55,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
       listCommand,
       checkCommand,
       diffCommand,
+      fallbackCommand,
     ],
   },
   {
