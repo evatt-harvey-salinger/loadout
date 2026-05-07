@@ -168,19 +168,13 @@ function renderTable(infos: LoadoutInfo[], sourceChain: string[]): void {
     console.log(`  ${activeMarker} ${nameCol} ${defaultMarker}   ${chalk.yellow(sourceCol)}  ${chalk.cyan(itemsCol)}${descCol}`);
   }
 
-  // Footer: show legend and source chain
+  // Footer: show legend and source chain (aligned with table columns)
   console.log();
-  
-  const legendParts: string[] = [];
-  if (infos.some(i => i.isActive)) {
-    legendParts.push(`${chalk.green("▸")} active`);
-  }
-  if (infos.some(i => i.isDefault)) {
-    legendParts.push(`${chalk.cyan("*")} default`);
-  }
-  if (legendParts.length > 0) {
-    console.log(chalk.dim(`  ${legendParts.join("  ")}`));
-  }
+  const activeLegend = `${chalk.green("▸")} active`;
+  const defaultLegend = `${chalk.cyan("*")} default`;
+  // Align: "  ▸ " + padding to where "*" appears (after name column)
+  const legendPadding = nameWidth - "active".length;
+  console.log(chalk.dim(`  ${activeLegend}${" ".repeat(legendPadding)} ${defaultLegend}`));
 
   if (sourceChain.length > 0) {
     console.log(chalk.dim(`  sources: ${sourceChain.join(" → ")}`));

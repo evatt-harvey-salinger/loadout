@@ -235,25 +235,28 @@ async function renderInfoForName(
 
 /**
  * Render info for a scope. When no name is given, uses active loadouts from
- * state (mirrors `status`), falling back to rootConfig.default / "base".
- * Throws if nothing can be loaded; callers decide how to handle.
+ * state (mirrors `status`). Returns true if state existed and was shown.
  */
 export async function executeInfo(
   ctx: CommandContext,
   name?: string
-): Promise<void> {
-  if (!name) {
-    // Prefer what's actually active over the (possibly stale) config default.
-    const state = loadState(ctx.configPath);
-    if (state && state.active.length > 0) {
-      for (const activeName of state.active) {
-        await renderInfoForName(ctx, activeName);
-      }
-      return;
-    }
+): Promise<boolean> {
+  if (name) {
+    // Explicit name requested — show it regardless of active state
+    await renderInfoForName(ctx, name);
+    return true;
   }
-  // Explicit name, or no state yet — fall through to normal resolution.
-  await renderInfoForName(ctx, name ?? "base");
+
+  // No name given — only show what's actually active
+  const state = loadState(ctx.configPath);
+  if (!state || state.active.length === 0) {
+    return false;
+  }
+
+  for (const activeName of state.active) {
+    await renderInfoForName(ctx, activeName);
+  }
+  return true;
 }
 
 export const infoCommand = new Command("info")
@@ -289,8 +292,7 @@ export const infoCommand = new Command("info")
 
     for (const ctx of contexts) {
       try {
-        await executeInfo(ctx, name);
-        hasAny = true;
+        hasAny = (await executeInfo(ctx, name)) || hasAny;
       } catch (err) {
         // Only skip when the loadout genuinely doesn't exist in this scope.
         // Re-surface unexpected errors so they aren't hidden.
@@ -302,7 +304,7 @@ export const infoCommand = new Command("info")
     }
 
     if (!hasAny) {
-      log.warn("No loadout found.");
-      log.dim("Run 'loadout init' to set up a loadout.");
+      log.warn("No loadout applied.");
+      log.dim("Run 'loadout info <name>' to inspect a loadout without activating.");
     }
   });
