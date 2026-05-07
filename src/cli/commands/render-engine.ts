@@ -1,0 +1,226 @@
+/**
+ * Render engine — the mechanism behind loadout operations.
+ *
+ * Single responsibility: given a target set of loadout names, resolve, plan,
+ * and render them to disk. Policy decisions (what the target set should be)
+ * live in policy.ts; this module is pure mechanism.
+ */
+
+import { discoverLoadoutRoots, getGlobalRoot } from "../../core/discovery.js";
+import { resolveLoadout, getInstructionItem } from "../../core/resolve.js";
+import { parseRootConfig } from "../../core/config.js";
+import { planRender, applyMultiPlan, removeManaged } from "../../core/render.js";
+import { loadState, clearState } from "../../core/manifest.js";
+import { log, heading, list } from "../../lib/output.js";
+import type { CommandContext, ResolvedLoadout, RenderPlan, LoadoutRoot } from "../../core/types.js";
+
+export interface ApplyOptions {
+  dryRun?: boolean;
+  /** Verb for output heading (e.g., "Activated", "Synced"). Defaults to "Applied". */
+  verb?: string;
+}
+
+export interface ApplyResult {
+  applied: boolean;
+  totalOutputs: number;
+}
+
+/**
+ * Resolve multiple loadouts and their render plans.
+ */
+async function resolveMultipleLoadouts(
+  names: string[],
+  ctx: CommandContext
+): Promise<Array<{ loadout: ResolvedLoadout; plan: RenderPlan }>> {
+  // Get roots based on scope
+  let roots: LoadoutRoot[];
+  if (ctx.scope === "global") {
+    const globalRoot = getGlobalRoot();
+    if (!globalRoot) throw new Error("No global loadout found at ~/.config/loadout");
+    roots = [globalRoot];
+  } else {
+    roots = await discoverLoadoutRoots(ctx.projectRoot);
+    if (roots.length === 0) {
+      throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
+    }
+  }
+
+  const rootConfig = parseRootConfig(ctx.configPath);
+  const results: Array<{ loadout: ResolvedLoadout; plan: RenderPlan }> = [];
+
+  for (const name of names) {
+    const loadout = resolveLoadout(name, roots, rootConfig);
+
+    // Auto-inject AGENTS.md if not already in includes
+    const alreadyHasInstruction = loadout.items.some(
+      (i) => i.relativePath === "AGENTS.md"
+    );
+    if (!alreadyHasInstruction) {
+      const instructionItem = getInstructionItem(ctx.configPath, loadout.tools);
+      if (instructionItem) loadout.items.push(instructionItem);
+    }
+
+    const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
+
+    if (plan.errors.length > 0) {
+      log.error(`Errors planning "${name}":`);
+      list(plan.errors);
+      process.exit(1);
+    }
+
+    results.push({ loadout, plan });
+  }
+
+  return results;
+}
+
+/**
+ * Clear all loadout outputs and state.
+ */
+export async function clearAllOutputs(
+  ctx: CommandContext,
+  options: { dryRun?: boolean } = {}
+): Promise<void> {
+  if (options.dryRun) {
+    const state = loadState(ctx.configPath);
+    const count = state?.entries.length ?? 0;
+    heading(`Would clear all loadouts (${ctx.scope})`);
+    log.dim(`  ${count} outputs would be removed`);
+    return;
+  }
+
+  const { removed } = await removeManaged(ctx.configPath, ctx.projectRoot, ctx.scope);
+  clearState(ctx.configPath);
+  heading(`Cleared all loadouts (${ctx.scope})`);
+  log.success(`${removed.length} outputs removed`);
+}
+
+/**
+ * Apply a target set of loadouts.
+ *
+ * This is the core mechanism: resolve the named loadouts, plan their outputs,
+ * and write them to disk. Caller is responsible for computing what the target
+ * set should be (see policy.ts).
+ */
+export async function applyTargetSet(
+  ctx: CommandContext,
+  targets: string[],
+  options: ApplyOptions = {}
+): Promise<ApplyResult> {
+  const { dryRun, verb = "Applied" } = options;
+
+  // Empty target set means clear — delegate to clearAllOutputs
+  if (targets.length === 0) {
+    await clearAllOutputs(ctx, { dryRun });
+    return { applied: true, totalOutputs: 0 };
+  }
+
+  // Resolve all target loadouts
+  let plans;
+  try {
+    plans = await resolveMultipleLoadouts(targets, ctx);
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  // Check for empty loadouts
+  const totalOutputs = plans.reduce((sum, p) => sum + p.plan.outputs.length, 0);
+  if (totalOutputs === 0) {
+    log.warn("No outputs to apply. Loadouts may be empty.");
+    return { applied: false, totalOutputs: 0 };
+  }
+
+  if (dryRun) {
+    heading(`Would apply loadouts: ${targets.join(", ")} (${ctx.scope})`);
+    console.log();
+
+    const byTool = new Map<string, string[]>();
+    for (const { plan } of plans) {
+      for (const { spec } of plan.outputs) {
+        const toolTargets = byTool.get(spec.tool) || [];
+        toolTargets.push(`${spec.targetPath} (${spec.mode})`);
+        byTool.set(spec.tool, toolTargets);
+      }
+    }
+
+    for (const [tool, toolTargets] of byTool) {
+      console.log(`  ${tool}:`);
+      for (const target of toolTargets) {
+        log.dim(`    ${target}`);
+      }
+    }
+
+    const allShadowed = plans.flatMap((p) => p.plan.shadowed);
+    if (allShadowed.length > 0) {
+      console.log();
+      log.warn(`${allShadowed.length} outputs would be shadowed by unmanaged files:`);
+      for (const s of allShadowed) {
+        log.dim(`  ${s.targetPath}  (${s.tool})`);
+      }
+    }
+
+    return { applied: false, totalOutputs };
+  }
+
+  // Apply for real
+  const rootConfig = parseRootConfig(ctx.configPath);
+  const result = await applyMultiPlan(
+    plans,
+    ctx.configPath,
+    ctx.projectRoot,
+    rootConfig.mode,
+    ctx.scope
+  );
+
+  heading(`${verb} loadouts: ${targets.join(", ")} (${ctx.scope})`);
+
+  // Show change summary
+  const totalChanges =
+    result.changes.updated.length +
+    result.changes.added.length +
+    result.changes.removed.length;
+
+  if (totalChanges > 0) {
+    const parts = [];
+    if (result.changes.updated.length > 0)
+      parts.push(`${result.changes.updated.length} updated`);
+    if (result.changes.added.length > 0)
+      parts.push(`${result.changes.added.length} added`);
+    if (result.changes.removed.length > 0)
+      parts.push(`${result.changes.removed.length} removed`);
+    log.success(`${totalChanges} changes: ${parts.join(", ")}`);
+
+    if (result.changes.updated.length > 0) {
+      const displayUpdated = result.changes.updated.slice(0, 3);
+      const more =
+        result.changes.updated.length > 3
+          ? ` (+${result.changes.updated.length - 3} more)`
+          : "";
+      log.dim(
+        `  Updated: [${displayUpdated.map((p) => p.split("/").pop()).join(", ")}${more}]`
+      );
+    }
+  } else {
+    log.success(`${result.totalOutputs} outputs in sync`);
+  }
+
+  console.log();
+  for (const [tool, count] of result.byTool) {
+    log.dim(`  ${tool}: ${count} files`);
+  }
+
+  const allShadowed = plans.flatMap((p) => p.plan.shadowed);
+  if (allShadowed.length > 0) {
+    console.log();
+    log.warn(`${allShadowed.length} outputs shadowed by unmanaged files:`);
+    for (const s of allShadowed) {
+      log.dim(`  ${s.targetPath}  (${s.tool})`);
+    }
+    log.dim(
+      "These files take precedence over the loadout. Use 'loadout status' to review."
+    );
+  }
+
+  return { applied: true, totalOutputs: result.totalOutputs };
+}
