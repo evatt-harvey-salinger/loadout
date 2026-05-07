@@ -19,12 +19,16 @@ export type ArtifactKind = string;
 // Output modes
 export type OutputMode = "symlink" | "copy" | "generate";
 
+// Source reference — path to another .loadout/ directory
+export type SourceRef = string;
+
 // Root config (.loadout/loadout.yaml)
 export interface RootConfig {
   version: "1";
   default?: string;
   mode?: OutputMode;
   tools?: Tool[];
+  sources?: SourceRef[];  // Paths to other .loadout/ directories
 }
 
 // Loadout definition (.loadout/loadouts/<name>.yaml)
@@ -105,8 +109,9 @@ export interface AppliedState {
 // A discovered .loadout/ root directory
 export interface LoadoutRoot {
   path: string;          // Absolute path to .loadout/ directory
-  level: "project" | "global";
-  depth: number;         // 0 = current dir, higher = further up tree
+  level: "project" | "source" | "global";
+  depth: number;         // 0 = current dir, higher = further up tree / source chain
+  sourceRef?: string;    // Original source reference (for debugging/display)
 }
 
 // Command execution context — built by getContext()

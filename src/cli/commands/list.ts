@@ -11,9 +11,9 @@
 import { Command } from "commander";
 import * as path from "node:path";
 import {
-  discoverLoadoutRoots,
   getGlobalRoot,
   findNearestLoadoutRoot,
+  collectRootsWithSources,
 } from "../../core/discovery.js";
 import {
   listLoadouts,
@@ -23,7 +23,7 @@ import {
 import { resolveScopes, SCOPE_FLAGS, type ScopeFlags } from "../../core/scope.js";
 import { fileExists } from "../../lib/fs.js";
 import { log, heading } from "../../lib/output.js";
-import type { LoadoutRoot, Scope } from "../../core/types.js";
+import type { LoadoutRoot } from "../../core/types.js";
 import chalk from "chalk";
 
 interface LoadoutInfo {
@@ -32,48 +32,78 @@ interface LoadoutInfo {
   count: number;
   extends?: string;
   description?: string;
+  source?: string;  // Which root this loadout comes from
   error?: boolean;
 }
 
-function printRoot(root: LoadoutRoot): void {
-  const rootConfig = parseRootConfig(root.path);
-  const loadoutNames = listLoadouts(root.path);
+/**
+ * Collect loadouts from all roots (local + sources + global).
+ * Returns loadouts grouped with their source, and any warnings.
+ */
+function collectAllLoadouts(
+  primaryRoot: LoadoutRoot,
+  includeGlobal: boolean
+): { infos: LoadoutInfo[]; warnings: string[] } {
+  const { roots, warnings } = collectRootsWithSources(primaryRoot, includeGlobal);
+  const infos: LoadoutInfo[] = [];
+  const seenNames = new Set<string>();
 
-  heading(`${root.level === "global" ? "Global loadouts" : "Project loadouts"} (${root.path})`);
+  for (const root of roots) {
+    const rootConfig = parseRootConfig(root.path);
+    const loadoutNames = listLoadouts(root.path);
 
-  if (loadoutNames.length === 0) {
+    // Determine source label
+    let sourceLabel: string | undefined;
+    if (root.level === "source") {
+      sourceLabel = root.sourceRef || path.basename(path.dirname(root.path));
+    } else if (root.level === "global") {
+      sourceLabel = "global";
+    }
+    // level === "project" → no source label (it's local)
+
+    for (const name of loadoutNames) {
+      // Skip if we've already seen this name (nearest wins)
+      if (seenNames.has(name)) continue;
+      seenNames.add(name);
+
+      const isDefault = root.level === "project" && rootConfig.default === name;
+      const defPath = path.join(root.path, "loadouts", `${name}.yaml`);
+      const ymlPath = path.join(root.path, "loadouts", `${name}.yml`);
+      const filePath = fileExists(defPath) ? defPath : ymlPath;
+
+      try {
+        const def = parseLoadoutDefinition(filePath);
+        infos.push({
+          name,
+          isDefault,
+          count: def.include.length,
+          extends: def.extends,
+          description: def.description,
+          source: sourceLabel,
+        });
+      } catch {
+        infos.push({ name, isDefault, count: 0, source: sourceLabel, error: true });
+      }
+    }
+  }
+
+  return { infos, warnings };
+}
+
+function printLoadouts(infos: LoadoutInfo[], title: string): void {
+  heading(title);
+
+  if (infos.length === 0) {
     log.dim("  No loadouts defined");
     return;
   }
 
-  // First pass: collect info and compute widths
-  const infos: LoadoutInfo[] = [];
-  for (const name of loadoutNames) {
-    const isDefault = rootConfig.default === name;
-    const defPath = path.join(root.path, "loadouts", `${name}.yaml`);
-    const ymlPath = path.join(root.path, "loadouts", `${name}.yml`);
-    const filePath = fileExists(defPath) ? defPath : ymlPath;
-
-    try {
-      const def = parseLoadoutDefinition(filePath);
-      infos.push({
-        name,
-        isDefault,
-        count: def.include.length,
-        extends: def.extends,
-        description: def.description,
-      });
-    } catch {
-      infos.push({ name, isDefault, count: 0, error: true });
-    }
-  }
-
   // Compute column widths
-  const nameWidth = Math.max(...infos.map(i => i.name.length));
+  const nameWidth = Math.max(...infos.map(i => i.name.length), 4);
   const maxCount = Math.max(...infos.map(i => i.count));
-  const countWidth = `${maxCount} items`.length;
+  const countWidth = Math.max(`${maxCount} items`.length, 6);
+  const sourceWidth = Math.max(...infos.map(i => (i.source || "").length), 0);
 
-  // Second pass: print aligned
   for (const info of infos) {
     if (info.error) {
       console.log(`  ${info.name.padEnd(nameWidth)}  ${chalk.red("(error reading definition)")}`);
@@ -85,9 +115,10 @@ function printRoot(root: LoadoutRoot): void {
     const countStr = `${info.count} ${itemWord}`.padEnd(countWidth);
     const marker = info.isDefault ? chalk.green(" *") : "  ";
     const extendsInfo = info.extends ? chalk.dim(` → ${info.extends}`) : "";
+    const sourceInfo = info.source ? chalk.yellow(` [${info.source}]`) : "";
     const desc = info.description ? chalk.dim(`  ${info.description}`) : "";
 
-    console.log(`  ${nameCol}${marker}  ${chalk.cyan(countStr)}${extendsInfo}${desc}`);
+    console.log(`  ${nameCol}${marker}  ${chalk.cyan(countStr)}${sourceInfo}${extendsInfo}${desc}`);
   }
 }
 
@@ -106,14 +137,33 @@ export const listCommand = new Command("list")
       if (scope === "project") {
         const projectRoot = await findNearestLoadoutRoot(cwd);
         if (projectRoot) {
-          printRoot(projectRoot);
+          const { infos, warnings } = collectAllLoadouts(projectRoot, false);
+          printLoadouts(infos, `Project loadouts (${projectRoot.path})`);
+          
+          // Show source warnings
+          if (warnings.length > 0) {
+            console.log();
+            for (const w of warnings) {
+              log.warn(w);
+            }
+          }
+          
           console.log();
           hasAny = true;
         }
       } else {
         const globalRoot = getGlobalRoot();
         if (globalRoot) {
-          printRoot(globalRoot);
+          const { infos, warnings } = collectAllLoadouts(globalRoot, false);
+          printLoadouts(infos, `Global loadouts (${globalRoot.path})`);
+          
+          if (warnings.length > 0) {
+            console.log();
+            for (const w of warnings) {
+              log.warn(w);
+            }
+          }
+          
           console.log();
           hasAny = true;
         }

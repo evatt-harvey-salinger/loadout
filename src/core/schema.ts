@@ -15,11 +15,15 @@ export const ArtifactKindSchema = z.string().min(1);
 
 export const OutputModeSchema = z.enum(["symlink", "copy", "generate"]);
 
+// Source reference — path to another .loadout/ directory
+export const SourceRefSchema = z.string();
+
 export const RootConfigSchema = z.object({
   version: z.literal("1"),
   default: z.string().optional(),
   mode: OutputModeSchema.optional(),
   tools: z.array(ToolSchema).optional(),
+  sources: z.array(SourceRefSchema).optional(),
 });
 
 export const LoadoutIncludeSchema = z.union([

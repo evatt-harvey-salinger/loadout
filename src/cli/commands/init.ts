@@ -13,7 +13,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as yaml from "yaml";
 import { ensureDir, writeFile, fileExists } from "../../lib/fs.js";
-import { writeFallbackScripts, ENVRC_LINES } from "../../core/fallback.js";
+import { writeFallbackScript, writeGitHooks, ENVRC_LINES } from "../../core/fallback.js";
+import { findGitRoot } from "../../lib/git.js";
 import { getContext, getGlobalConfigPath } from "../../core/discovery.js";
 import { loadResolvedLoadout } from "../../core/resolve.js";
 import { planRender, applyPlan } from "../../core/render.js";
@@ -80,11 +81,17 @@ Add your project-specific guidelines here.
 `;
     writeFile(path.join(loadoutPath, "AGENTS.md"), agentsContent);
 
-    // Create fallback scripts and git hooks
-    writeFallbackScripts(loadoutPath);
+    // Create fallback script (always)
+    writeFallbackScript(loadoutPath);
 
-    // Append to .envrc for direnv users
+    // Create git hooks only if we're at git root (they don't work for subprojects)
     const projectRoot = process.cwd();
+    const gitRoot = await findGitRoot(projectRoot);
+    const isAtGitRoot = gitRoot === projectRoot;
+    
+    if (isAtGitRoot) {
+      writeGitHooks(loadoutPath);
+    }
     const envrcPath = path.join(projectRoot, ".envrc");
     
     if (fileExists(envrcPath)) {
@@ -108,7 +115,13 @@ Add your project-specific guidelines here.
   log.success(`Created ${displayPath}skills/`);
   if (scope === "project") {
     log.success(`Created ${displayPath}sync-fallback.sh`);
-    log.success(`Created ${displayPath}hooks/ (git hooks)`);
+    const gitRoot = await findGitRoot(process.cwd());
+    const isAtGitRoot = gitRoot === process.cwd();
+    if (isAtGitRoot) {
+      log.success(`Created ${displayPath}hooks/ (git hooks)`);
+    } else {
+      log.dim(`Skipped git hooks (subproject - use direnv instead)`);
+    }
     log.success(`Updated .envrc (direnv integration)`);
   }
   console.log();
@@ -148,9 +161,17 @@ Add your project-specific guidelines here.
     log.dim("  • Add rules with: loadout rule add <name>");
     log.dim("  • Run 'loadout sync' to re-sync after changes");
     console.log();
-    log.info("Team setup (choose one):");
-    log.dim("  • Git hooks: git config core.hooksPath .loadout/hooks");
-    log.dim("  • Direnv:    direnv allow");
+    const gitRoot = await findGitRoot(process.cwd());
+    const isAtGitRoot = gitRoot === process.cwd();
+    if (isAtGitRoot) {
+      log.info("Team setup (choose one):");
+      log.dim("  • Git hooks: git config core.hooksPath .loadout/hooks");
+      log.dim("  • Direnv:    direnv allow");
+    } else {
+      log.info("Team setup:");
+      log.dim("  • Direnv: direnv allow");
+      log.dim("  (Git hooks not available for subprojects)");
+    }
   } else {
     log.dim("  • Add rules with: loadout rule add <name> -g");
     log.dim("  • Add skills with: loadout skill add <name> -g");

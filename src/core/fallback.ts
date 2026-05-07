@@ -11,7 +11,7 @@ export const FALLBACK_SCRIPT = `#!/bin/sh
 # This script is called by git hooks and direnv when loadout is not available
 
 set -e
-cd "$(dirname "$0")/.." 2>/dev/null || cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$0")/.."
 
 # Skip if already synced
 [ -f ".loadout/.state.json" ] && exit 0
@@ -94,19 +94,32 @@ export const ENVRC_LINES = `
 `;
 
 /**
- * Write/update the fallback infrastructure files in .loadout/
- * Called by both init and sync for project scope.
+ * Write the main fallback sync script.
+ * Works for both git root and subprojects.
  */
-export function writeFallbackScripts(loadoutPath: string): void {
-  // Write the main fallback script
+export function writeFallbackScript(loadoutPath: string): void {
   writeFile(path.join(loadoutPath, "sync-fallback.sh"), FALLBACK_SCRIPT);
   makeExecutable(path.join(loadoutPath, "sync-fallback.sh"));
+}
 
-  // Write git hooks
+/**
+ * Write git hooks that call the fallback script.
+ * Only meaningful when .loadout/ is at git root.
+ */
+export function writeGitHooks(loadoutPath: string): void {
   const hooksDir = path.join(loadoutPath, "hooks");
   ensureDir(hooksDir);
   writeFile(path.join(hooksDir, "post-checkout"), HOOK_SCRIPT);
   writeFile(path.join(hooksDir, "post-merge"), HOOK_SCRIPT);
   makeExecutable(path.join(hooksDir, "post-checkout"));
   makeExecutable(path.join(hooksDir, "post-merge"));
+}
+
+/**
+ * Write all fallback infrastructure (script + hooks).
+ * Use writeFallbackScript() alone for subprojects where git hooks don't apply.
+ */
+export function writeFallbackScripts(loadoutPath: string): void {
+  writeFallbackScript(loadoutPath);
+  writeGitHooks(loadoutPath);
 }

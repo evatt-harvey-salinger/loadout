@@ -1,11 +1,12 @@
 /**
- * Discovery: Find .loadout/ directories from cwd up to git root
+ * Discovery: Find .loadout/ directories and resolve source references
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { LoadoutRoot, Scope, CommandContext } from "./types.js";
+import * as yaml from "yaml";
+import { LoadoutRoot, Scope, CommandContext, SourceRef } from "./types.js";
 import { findGitRoot } from "../lib/git.js";
 
 const LOADOUT_DIR = ".loadout";
@@ -107,7 +108,9 @@ export async function getContext(
     if (!nearestRoot) {
       throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
     }
-    const projectRoot = await getProjectRoot(cwd);
+    // projectRoot is the directory containing .loadout/, not git root
+    // This allows subprojects in monorepos to have their own loadout
+    const projectRoot = path.dirname(nearestRoot.path);
     return {
       scope: "project",
       configPath: nearestRoot.path,
@@ -132,4 +135,118 @@ export function getGlobalRoot(): LoadoutRoot | null {
     };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Source resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a source path relative to a .loadout/ directory.
+ * Handles ~, relative paths, and looks for .loadout/ within the target.
+ */
+export function resolveSourcePath(sourceRef: string, fromLoadoutDir: string): string | null {
+  // Expand ~ to home directory
+  let resolved = sourceRef.startsWith("~")
+    ? path.join(os.homedir(), sourceRef.slice(1))
+    : sourceRef;
+
+  // Resolve relative to the directory containing .loadout/
+  if (!path.isAbsolute(resolved)) {
+    const fromDir = path.dirname(fromLoadoutDir);
+    resolved = path.resolve(fromDir, resolved);
+  }
+
+  // If the path points directly to a .loadout/ directory, use it
+  if (path.basename(resolved) === ".loadout" && fs.existsSync(resolved)) {
+    return resolved;
+  }
+
+  // Otherwise, look for .loadout/ within the resolved path
+  const loadoutPath = path.join(resolved, ".loadout");
+  if (fs.existsSync(loadoutPath) && fs.statSync(loadoutPath).isDirectory()) {
+    return loadoutPath;
+  }
+
+  return null;
+}
+
+/**
+ * Parse sources from a loadout.yaml file.
+ * Returns empty array if file doesn't exist or has no sources.
+ */
+function parseSourcesFromConfig(loadoutDir: string): SourceRef[] {
+  const configPath = path.join(loadoutDir, "loadout.yaml");
+  if (!fs.existsSync(configPath)) return [];
+
+  try {
+    const content = fs.readFileSync(configPath, "utf-8");
+    const config = yaml.parse(content);
+    return config?.sources ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Collect all roots starting from a primary root, following sources transitively.
+ * Missing sources generate warnings but don't fail resolution.
+ *
+ * @param primaryRoot - The starting .loadout/ directory
+ * @param includeGlobal - Whether to append the global root
+ * @returns Ordered list of roots (primary first, then sources in declaration order, global last)
+ */
+export function collectRootsWithSources(
+  primaryRoot: LoadoutRoot,
+  includeGlobal: boolean = true
+): { roots: LoadoutRoot[]; warnings: string[] } {
+  const roots: LoadoutRoot[] = [primaryRoot];
+  const seen = new Set<string>([primaryRoot.path]);
+  const warnings: string[] = [];
+
+  // BFS through sources to maintain declaration order and handle transitives
+  const queue: Array<{ loadoutDir: string; depth: number }> = [
+    { loadoutDir: primaryRoot.path, depth: 0 },
+  ];
+
+  while (queue.length > 0) {
+    const { loadoutDir, depth } = queue.shift()!;
+    const sources = parseSourcesFromConfig(loadoutDir);
+
+    for (const sourcePath of sources) {
+      const resolved = resolveSourcePath(sourcePath, loadoutDir);
+
+      if (!resolved) {
+        warnings.push(`Source not found: ${sourcePath} (from ${path.basename(path.dirname(loadoutDir))})`);
+        continue;
+      }
+
+      // Cycle detection
+      if (seen.has(resolved)) {
+        continue; // Skip silently - not an error, just already included
+      }
+      seen.add(resolved);
+
+      const sourceRoot: LoadoutRoot = {
+        path: resolved,
+        level: "source",
+        depth: depth + 1,
+        sourceRef: sourcePath,
+      };
+      roots.push(sourceRoot);
+
+      // Queue for transitive source resolution
+      queue.push({ loadoutDir: resolved, depth: depth + 1 });
+    }
+  }
+
+  // Append global root last (lowest priority)
+  if (includeGlobal) {
+    const globalRoot = getGlobalRoot();
+    if (globalRoot && !seen.has(globalRoot.path)) {
+      roots.push(globalRoot);
+    }
+  }
+
+  return { roots, warnings };
 }

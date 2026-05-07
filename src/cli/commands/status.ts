@@ -404,6 +404,15 @@ export async function executeStatus(ctx: CommandContext, showReferences: boolean
     displayArtifacts = collapseSkillReferences(drift.artifacts);
   }
 
+  // Show sources if any (from first active loadout's resolution)
+  try {
+    const { roots } = await loadResolvedLoadout(ctx, state.active[0]);
+    const sources = roots.filter((r) => r.level === "source");
+    if (sources.length > 0) {
+      console.log(`  Sources: ${sources.map((s) => s.sourceRef || s.path).join(", ")}`);
+    }
+  } catch { /* ignore */ }
+
   console.log(`  Applied: ${new Date(state.appliedAt).toLocaleString()}`);
   console.log(`  Mode: ${state.mode}`);
   console.log(`  Artifacts: ${displayArtifacts.length}`);

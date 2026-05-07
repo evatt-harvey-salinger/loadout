@@ -212,7 +212,7 @@ async function renderInfoForName(
 ): Promise<void> {
   const result = await loadResolvedLoadout(ctx, name);
 
-  const { loadout, loadoutName } = result;
+  const { loadout, loadoutName, roots } = result;
   const scopeLabel = ctx.scope === "global" ? "Global" : "Project";
 
   heading(`${scopeLabel} loadout: ${loadoutName}`);
@@ -223,6 +223,12 @@ async function renderInfoForName(
     meta["Extends"] = loadout.extendsChain.join(" → ");
   }
   meta["Root"] = loadout.rootPath;
+
+  // Show sources if any
+  const sources = roots.filter((r) => r.level === "source");
+  if (sources.length > 0) {
+    meta["Sources"] = sources.map((s) => s.sourceRef || s.path).join(", ");
+  }
 
   keyValue(meta);
   console.log();

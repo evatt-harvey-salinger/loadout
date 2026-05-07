@@ -10,7 +10,7 @@ import {
 import { registry } from "./registry.js";
 import { loadYamlKindsFromRoots } from "./kindLoader.js";
 import { fileExists, isDirectory } from "../lib/fs.js";
-import { discoverLoadoutRoots, getGlobalRoot } from "./discovery.js";
+import { discoverLoadoutRoots, getGlobalRoot, collectRootsWithSources } from "./discovery.js";
 import type {
   LoadoutRoot,
   LoadoutDefinition,
@@ -185,6 +185,7 @@ export interface LoadResult {
   rootConfig: RootConfig;
   loadoutName: string;
   roots: LoadoutRoot[];
+  sourceWarnings: string[];
 }
 
 /**
@@ -192,24 +193,38 @@ export interface LoadResult {
  * instruction item if present. Throws on any failure — callers decide whether
  * to exit. This consolidates the pattern previously duplicated across apply,
  * diff, info, init, and global commands.
+ *
+ * Root collection order:
+ *   1. Primary .loadout/ (from ctx.configPath)
+ *   2. Sources declared in loadout.yaml (transitively)
+ *   3. Global ~/.config/loadout/ (lowest priority)
  */
 export async function loadResolvedLoadout(
   ctx: CommandContext,
   name?: string
 ): Promise<LoadResult> {
-  // Roots: project scope walks up from cwd; global scope uses only the global root.
   let roots: LoadoutRoot[];
+  let sourceWarnings: string[] = [];
+
   if (ctx.scope === "global") {
     const globalRoot = getGlobalRoot();
     if (!globalRoot) {
       throw new Error("No global loadout found at ~/.config/loadout");
     }
-    roots = [globalRoot];
+    // Global scope: just the global root, plus any sources it declares
+    const collected = collectRootsWithSources(globalRoot, false);
+    roots = collected.roots;
+    sourceWarnings = collected.warnings;
   } else {
-    roots = await discoverLoadoutRoots(ctx.projectRoot);
-    if (roots.length === 0) {
+    // Project scope: start with the nearest .loadout/, collect sources
+    const discovered = await discoverLoadoutRoots(ctx.projectRoot);
+    if (discovered.length === 0) {
       throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
     }
+    const primaryRoot = discovered[0];
+    const collected = collectRootsWithSources(primaryRoot, true);
+    roots = collected.roots;
+    sourceWarnings = collected.warnings;
   }
 
   const rootConfig = parseRootConfig(ctx.configPath);
@@ -225,5 +240,5 @@ export async function loadResolvedLoadout(
     if (instructionItem) loadout.items.push(instructionItem);
   }
 
-  return { loadout, rootConfig, loadoutName, roots };
+  return { loadout, rootConfig, loadoutName, roots, sourceWarnings };
 }

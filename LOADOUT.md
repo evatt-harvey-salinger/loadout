@@ -140,27 +140,59 @@ include:
     tools: [claude-code, pi]              # Multiple specific tools
 ```
 
-### Hierarchical Discovery
+### Sources: Cross-Project Configuration
 
-Loadout supports **monorepo** and **nested project** structures. Discovery walks from your current directory up to the git root, collecting all `.loadout/` directories:
+Loadout supports sharing configuration across projects via **sources**. Declare paths to other `.loadout/` directories in your `loadout.yaml`:
+
+```yaml
+# packages/api/.loadout/loadout.yaml
+version: "1"
+default: api
+
+sources:
+  - ../..                    # Parent monorepo .loadout/
+  - ../../shared/configs     # Sibling shared config directory
+  - ~/dotfiles               # Personal global config (~ expands to home)
+```
+
+When resolving loadouts, sources are searched in declaration order after the local `.loadout/`. This enables:
+
+- **Monorepo inheritance** — Subprojects pull rules/skills from the repo root
+- **Shared config libraries** — Reference a common config directory
+- **Bi-directional sharing** — Parent can also source from children for umbrella loadouts
+
+**Resolution order:**
+1. Local `.loadout/` (highest priority)
+2. Sources in declaration order (transitively followed)
+3. Global `~/.config/loadout/` (lowest priority)
+
+Nearest wins on name conflicts. A subproject loadout can `extends: base` to inherit from a parent's base loadout.
+
+**Example: Monorepo structure**
 
 ```
-~/code/monorepo/                    # git root
+~/code/monorepo/
 ├── .loadout/                       # repo-level config
-│   └── loadouts/base.yaml
+│   ├── loadout.yaml
+│   ├── loadouts/base.yaml          # Shared base loadout
+│   ├── rules/shared-style.md       # Shared rules
+│   └── skills/debugging/           # Shared skills
 ├── packages/
 │   └── api/
-│       ├── .loadout/               # package-level config
+│       ├── .loadout/
+│       │   ├── loadout.yaml        # sources: [../..]
 │       │   └── loadouts/api.yaml   # extends: base
 │       └── src/
 ```
 
-**Resolution order:**
-1. Nearest `.loadout/` (current directory or closest parent)
-2. Parent `.loadout/` directories up to to git root
-3. Global `~/.config/loadout/` (lowest priority)
+With `sources: [../..]` in `packages/api/.loadout/loadout.yaml`, running `loadout sync` in the api package will:
+1. Resolve the `api` loadout (which extends `base` from the parent)
+2. Include parent's `rules/shared-style.md` and `skills/debugging/`
+3. Render all artifacts to `packages/api/.cursor/`, `packages/api/.claude/`, etc.
 
-Nearest wins on name conflicts. A package's `api` loadout can `extends: base` to inherit from the repo-level base.
+**Missing sources:** If a source path doesn't resolve, loadout logs a warning and continues. Use `loadout list` to see available loadouts and any source warnings.
+
+**Cycle detection:** Loadout detects circular source references and skips duplicates automatically.
 
 ### Artifact Kinds
 
@@ -531,6 +563,9 @@ tools:                    # Tools to target (default: all)
   - claude-code
   - cursor
   - opencode
+sources:                  # Other .loadout/ directories to include
+  - ../..                 # Relative path (to directory containing .loadout/)
+  - ~/shared/configs      # Absolute or ~ paths supported
 ```
 
 ### Loadout Definition: `loadouts/<name>.yaml`
