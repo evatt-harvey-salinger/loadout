@@ -1,26 +1,46 @@
 /**
- * loadout instructions - Manage AGENTS.md
+ * loadout instructions - Manage per-loadout instruction files
+ * 
+ * Instructions are stored as instructions/<loadout>.md and rendered to AGENTS.md
  */
 
 import { Command } from "commander";
 import * as path from "node:path";
 import { findNearestLoadoutRoot, getProjectRoot } from "../../core/discovery.js";
-import { writeFile, readFile, fileExists, removeFile, copyFile } from "../../lib/fs.js";
+import { loadState } from "../../core/manifest.js";
+import { writeFile, readFile, fileExists, removeFile, copyFile, ensureDir } from "../../lib/fs.js";
 import { log } from "../../lib/output.js";
 import { spawn } from "node:child_process";
 
-const INSTRUCTIONS_FILE = "AGENTS.md";
+const INSTRUCTIONS_DIR = "instructions";
+
+/**
+ * Get the instruction file path for a loadout.
+ */
+function getInstructionPath(loadoutPath: string, loadoutName: string): string {
+  return path.join(loadoutPath, INSTRUCTIONS_DIR, `AGENTS.${loadoutName}.md`);
+}
+
+/**
+ * Get the active loadout name, or default to "base".
+ */
+function getActiveLoadout(loadoutPath: string): string {
+  const state = loadState(loadoutPath);
+  const active = state?.active ?? [];
+  return active.length > 0 ? active[0] : "base";
+}
 
 export const instructionsCommand = new Command("instructions").description(
-  "Manage project instructions (AGENTS.md)"
+  "Manage per-loadout instruction files"
 );
 
-// loadout instructions init
+// loadout instructions init [loadout]
 instructionsCommand
   .command("init")
-  .description("Create AGENTS.md if it doesn't exist")
+  .description("Create an instruction file for a loadout")
+  .argument("[loadout]", "Loadout name (default: active loadout or 'base')")
   .option("-f, --force", "Overwrite existing file")
-  .action(async (options) => {
+  .action(async (loadoutName, options) => {
     const nearestRoot = await findNearestLoadoutRoot(process.cwd());
 
     if (!nearestRoot) {
@@ -28,18 +48,19 @@ instructionsCommand
       process.exit(1);
     }
 
-    const filePath = path.join(nearestRoot.path, INSTRUCTIONS_FILE);
+    const targetLoadout = loadoutName || getActiveLoadout(nearestRoot.path);
+    const filePath = getInstructionPath(nearestRoot.path, targetLoadout);
 
     if (fileExists(filePath) && !options.force) {
-      log.warn(`AGENTS.md already exists: ${filePath}`);
-      log.dim("Edit it with: loadout instructions edit");
+      log.warn(`Instruction file already exists: ${filePath}`);
+      log.dim(`Edit it with: loadout instructions edit ${targetLoadout}`);
       log.dim("Or overwrite with: loadout instructions init --force");
       process.exit(1);
     }
 
     const content = `# Project Instructions
 
-> These instructions are always included for AI coding agents.
+> These instructions are always included for AI coding agents when the **${targetLoadout}** loadout is active.
 
 ## Quick Reference
 
@@ -73,16 +94,19 @@ When completing a task:
 - [ ] Changes are documented if needed
 `;
 
+    ensureDir(path.dirname(filePath));
     writeFile(filePath, content);
-    log.success(`Created: ${filePath}`);
-    log.info("Edit with: loadout instructions edit");
+    log.success(`Created: instructions/AGENTS.${targetLoadout}.md`);
+    log.info(`Edit with: loadout instructions edit ${targetLoadout}`);
+    log.dim(`Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
   });
 
-// loadout instructions edit
+// loadout instructions edit [loadout]
 instructionsCommand
   .command("edit")
-  .description("Edit AGENTS.md in $EDITOR")
-  .action(async () => {
+  .description("Edit an instruction file in $EDITOR")
+  .argument("[loadout]", "Loadout name (default: active loadout or 'base')")
+  .action(async (loadoutName) => {
     const nearestRoot = await findNearestLoadoutRoot(process.cwd());
 
     if (!nearestRoot) {
@@ -90,14 +114,16 @@ instructionsCommand
       process.exit(1);
     }
 
-    const filePath = path.join(nearestRoot.path, INSTRUCTIONS_FILE);
+    const targetLoadout = loadoutName || getActiveLoadout(nearestRoot.path);
+    const filePath = getInstructionPath(nearestRoot.path, targetLoadout);
 
     if (!fileExists(filePath)) {
-      log.error("AGENTS.md not found. Run 'loadout instructions init' first.");
+      log.error(`Instruction file not found: instructions/AGENTS.${targetLoadout}.md`);
+      log.dim(`Create it with: loadout instructions init ${targetLoadout}`);
       process.exit(1);
     }
 
-    const editor = process.env.EDITOR || "vim";
+    const editor = process.env.EDITOR || process.env.VISUAL || "vim";
 
     const child = spawn(editor, [filePath], {
       stdio: "inherit",
@@ -105,7 +131,7 @@ instructionsCommand
 
     child.on("exit", (code) => {
       if (code === 0) {
-        log.success("Edited AGENTS.md");
+        log.success(`Edited instructions/AGENTS.${targetLoadout}.md`);
       }
     });
   });
@@ -115,8 +141,9 @@ instructionsCommand
   .command("import")
   .description("Import an existing instruction file into loadout")
   .argument("[path]", "Path to existing file (defaults to ./AGENTS.md or ./CLAUDE.md)")
+  .option("--loadout <name>", "Target loadout (default: active loadout or 'base')")
   .option("--keep", "Keep original file (don't delete after import)")
-  .option("-f, --force", "Overwrite existing .loadout/AGENTS.md")
+  .option("-f, --force", "Overwrite existing instruction file")
   .action(async (filePath, options) => {
     const cwd = process.cwd();
     const projectRoot = await getProjectRoot(cwd);
@@ -126,6 +153,8 @@ instructionsCommand
       log.error("No .loadout/ directory found. Run 'loadout init' first.");
       process.exit(1);
     }
+
+    const targetLoadout = options.loadout || getActiveLoadout(nearestRoot.path);
 
     // Auto-detect source if not provided
     let sourcePath: string;
@@ -144,7 +173,7 @@ instructionsCommand
         sourcePath = claudePath;
       } else {
         log.error("No AGENTS.md or CLAUDE.md found in project root.");
-        log.dim("Specify a path: loadout instructions install <path>");
+        log.dim("Specify a path: loadout instructions import <path>");
         process.exit(1);
       }
     }
@@ -154,15 +183,16 @@ instructionsCommand
       process.exit(1);
     }
 
-    const destPath = path.join(nearestRoot.path, INSTRUCTIONS_FILE);
+    const destPath = getInstructionPath(nearestRoot.path, targetLoadout);
 
     if (fileExists(destPath) && !options.force) {
-      log.error("AGENTS.md already exists in .loadout/");
+      log.error(`instructions/AGENTS.${targetLoadout}.md already exists`);
       log.dim("Use --force to overwrite it with the imported file.");
       process.exit(1);
     }
 
     // Copy the file
+    ensureDir(path.dirname(destPath));
     copyFile(sourcePath, destPath);
 
     // Remove original if not --keep
@@ -171,7 +201,50 @@ instructionsCommand
       log.dim(`Removed original: ${sourcePath}`);
     }
 
-    log.success("Imported instructions");
-    log.dim(`  ${destPath}`);
-    log.info("Run 'loadout apply' to link outputs.");
+    log.success(`Imported to instructions/AGENTS.${targetLoadout}.md`);
+    log.dim(`Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
+    log.info("Run 'loadout sync' to apply changes.");
+  });
+
+// loadout instructions list
+instructionsCommand
+  .command("list")
+  .description("List instruction files")
+  .action(async () => {
+    const nearestRoot = await findNearestLoadoutRoot(process.cwd());
+
+    if (!nearestRoot) {
+      log.error("No .loadout/ directory found.");
+      process.exit(1);
+    }
+
+    const instructionsDir = path.join(nearestRoot.path, INSTRUCTIONS_DIR);
+    
+    if (!fileExists(instructionsDir)) {
+      log.dim("No instruction files found.");
+      log.dim("Create one with: loadout instructions init <loadout>");
+      return;
+    }
+
+    const fs = await import("node:fs");
+    const files = fs.readdirSync(instructionsDir)
+      .filter(f => f.startsWith("AGENTS.") && f.endsWith(".md"))
+      .map(f => f.replace(/^AGENTS\./, "").replace(/\.md$/, ""));
+
+    if (files.length === 0) {
+      log.dim("No instruction files found.");
+      log.dim("Create one with: loadout instructions init <loadout>");
+      return;
+    }
+
+    const activeLoadout = getActiveLoadout(nearestRoot.path);
+
+    console.log();
+    log.info("Instruction files:");
+    for (const file of files) {
+      const isActive = file === activeLoadout;
+      const marker = isActive ? " (active)" : "";
+      console.log(`  AGENTS.${file}.md${marker}`);
+    }
+    console.log();
   });

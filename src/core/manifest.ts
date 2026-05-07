@@ -14,7 +14,8 @@ import {
   hashDir,
   isDirectory,
 } from "../lib/fs.js";
-import { AppliedStateSchema, LegacyAppliedStateSchema } from "./schema.js";
+import { AppliedStateSchema, LegacyAppliedStateSchema, LegacyManifestEntrySchema } from "./schema.js";
+import { z } from "zod";
 import type { AppliedState, ManifestEntry, OutputMode } from "./types.js";
 
 const STATE_FILE = ".state.json";
@@ -41,20 +42,50 @@ export function loadState(loadoutRoot: string): AppliedState | null {
     const content = readFile(statePath);
     const parsed = JSON.parse(content);
     
-    // Try new format first
+    // Try new format first (multi-loadout, multi-tool)
     const newFormat = AppliedStateSchema.safeParse(parsed);
     if (newFormat.success) {
       return newFormat.data;
     }
     
-    // Try legacy format and migrate
+    // Try single-tool entries format (active[] but tool instead of tools)
+    const singleToolFormat = z.object({
+      active: z.array(z.string()),
+      mode: z.enum(["symlink", "copy", "generate"]),
+      appliedAt: z.string(),
+      entries: z.array(LegacyManifestEntrySchema),
+      shadowed: z.array(z.object({
+        tool: z.string(),
+        kind: z.string(),
+        sourcePath: z.string(),
+        targetPath: z.string(),
+      })).default([]),
+    }).safeParse(parsed);
+    
+    if (singleToolFormat.success) {
+      return {
+        active: singleToolFormat.data.active,
+        mode: singleToolFormat.data.mode,
+        appliedAt: singleToolFormat.data.appliedAt,
+        entries: singleToolFormat.data.entries.map(e => ({
+          ...e,
+          tools: [e.tool],
+        })),
+        shadowed: singleToolFormat.data.shadowed,
+      };
+    }
+    
+    // Try legacy single-loadout format (loadout instead of active)
     const legacyFormat = LegacyAppliedStateSchema.safeParse(parsed);
     if (legacyFormat.success) {
       return {
         active: [legacyFormat.data.loadout],
         mode: legacyFormat.data.mode,
         appliedAt: legacyFormat.data.appliedAt,
-        entries: legacyFormat.data.entries,
+        entries: legacyFormat.data.entries.map((e: z.infer<typeof LegacyManifestEntrySchema>) => ({
+          ...e,
+          tools: [e.tool],
+        })),
         shadowed: legacyFormat.data.shadowed,
       };
     }

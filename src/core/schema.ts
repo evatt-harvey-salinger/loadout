@@ -42,6 +42,16 @@ export const LoadoutDefinitionSchema = z.object({
 });
 
 export const ManifestEntrySchema = z.object({
+  tools: z.array(ToolSchema),
+  kind: ArtifactKindSchema,
+  sourcePath: z.string(),
+  targetPath: z.string(),
+  mode: OutputModeSchema,
+  renderedHash: z.string(),
+});
+
+// Legacy schema for single-tool entries (pre-multi-tool format)
+export const LegacyManifestEntrySchema = z.object({
   tool: ToolSchema,
   kind: ArtifactKindSchema,
   sourcePath: z.string(),
@@ -70,7 +80,7 @@ export const LegacyAppliedStateSchema = z.object({
   loadout: z.string(),
   mode: OutputModeSchema,
   appliedAt: z.string(),
-  entries: z.array(ManifestEntrySchema),
+  entries: z.array(LegacyManifestEntrySchema),
   shadowed: z.array(ShadowedEntrySchema).default([]),
 });
 

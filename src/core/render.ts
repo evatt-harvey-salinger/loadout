@@ -324,9 +324,22 @@ export async function applyPlan(
     }
   }
 
-  // Build manifest entries from plan outputs
-  const entries: ManifestEntry[] = plan.outputs.map(({ spec, hash }) => ({
-    tool: spec.tool,
+  // Build manifest entries from plan outputs, grouping tools by targetPath
+  const outputsByTarget = new Map<string, { output: typeof plan.outputs[0]; tools: Set<string> }>();
+  for (const output of plan.outputs) {
+    const existing = outputsByTarget.get(output.spec.targetPath);
+    if (existing) {
+      existing.tools.add(output.spec.tool);
+    } else {
+      outputsByTarget.set(output.spec.targetPath, {
+        output,
+        tools: new Set([output.spec.tool]),
+      });
+    }
+  }
+  
+  const entries: ManifestEntry[] = Array.from(outputsByTarget.values()).map(({ output: { spec, hash }, tools }) => ({
+    tools: Array.from(tools).sort(),
     kind: spec.kind,
     sourcePath: spec.sourcePath,
     targetPath: spec.targetPath,
@@ -371,36 +384,46 @@ export async function applyMultiPlan(
   mode: OutputMode = "symlink",
   scope: Scope = "project"
 ): Promise<ApplyResult> {
-  // Merge all outputs, deduplicating by targetPath (first wins)
-  const seenTargets = new Set<string>();
-  const mergedOutputs: RenderPlan["outputs"] = [];
+  // Merge all outputs, deduplicating by targetPath but collecting all tools
+  const outputsByTarget = new Map<string, { output: RenderPlan["outputs"][0]; tools: Set<string> }>();
   const mergedShadowed: ShadowedEntry[] = [];
+  const seenShadowedTargets = new Set<string>();
   
   for (const { plan } of plans) {
     for (const output of plan.outputs) {
-      if (!seenTargets.has(output.spec.targetPath)) {
-        seenTargets.add(output.spec.targetPath);
-        mergedOutputs.push(output);
+      const existing = outputsByTarget.get(output.spec.targetPath);
+      if (existing) {
+        // Same target path, collect the tool
+        existing.tools.add(output.spec.tool);
+      } else {
+        // First output for this target
+        outputsByTarget.set(output.spec.targetPath, {
+          output,
+          tools: new Set([output.spec.tool]),
+        });
       }
     }
     for (const s of plan.shadowed) {
-      if (!seenTargets.has(s.targetPath)) {
+      if (!seenShadowedTargets.has(s.targetPath)) {
+        seenShadowedTargets.add(s.targetPath);
         mergedShadowed.push(s);
       }
     }
   }
+  
+  const mergedOutputs = Array.from(outputsByTarget.values());
 
   // Detect changes
   const existingState = loadState(loadoutRoot);
   const oldEntries = new Map(existingState?.entries.map(e => [e.targetPath, e]) ?? []);
-  const newHashes = new Map(mergedOutputs.map(o => [o.spec.targetPath, o.hash]));
+  const newHashes = new Map(mergedOutputs.map(o => [o.output.spec.targetPath, o.output.hash]));
   
   const updated: string[] = [];
   const added: string[] = [];
   const removed: string[] = [];
   
   // Find updated and added
-  for (const output of mergedOutputs) {
+  for (const { output } of mergedOutputs) {
     const oldEntry = oldEntries.get(output.spec.targetPath);
     if (!oldEntry) {
       added.push(output.spec.targetPath);
@@ -410,7 +433,7 @@ export async function applyMultiPlan(
   }
   
   // Find removed
-  const newTargets = new Set(mergedOutputs.map((o) => o.spec.targetPath));
+  const newTargets = new Set(mergedOutputs.map((o) => o.output.spec.targetPath));
   if (existingState) {
     for (const entry of existingState.entries) {
       if (!newTargets.has(entry.targetPath)) {
@@ -424,7 +447,7 @@ export async function applyMultiPlan(
 
   // Write each merged output
   const byTool = new Map<string, number>();
-  for (const { spec, item } of mergedOutputs) {
+  for (const { output: { spec, item } } of mergedOutputs) {
     const targetPath = resolveTargetPath(spec.targetPath, projectRoot);
 
     // Clear whatever was there before
@@ -446,9 +469,9 @@ export async function applyMultiPlan(
     byTool.set(spec.tool, (byTool.get(spec.tool) || 0) + 1);
   }
 
-  // Build manifest entries
-  const entries: ManifestEntry[] = mergedOutputs.map(({ spec, hash }) => ({
-    tool: spec.tool,
+  // Build manifest entries with all tools that share each output
+  const entries: ManifestEntry[] = mergedOutputs.map(({ output: { spec, hash }, tools }) => ({
+    tools: Array.from(tools).sort(),
     kind: spec.kind,
     sourcePath: spec.sourcePath,
     targetPath: spec.targetPath,
@@ -469,7 +492,7 @@ export async function applyMultiPlan(
 
   // Update .gitignore with managed paths (project scope only)
   if (scope === "project") {
-    const managedPaths = mergedOutputs.map((o) => o.spec.targetPath);
+    const managedPaths = mergedOutputs.map((o) => o.output.spec.targetPath);
     updateGitignore(projectRoot, managedPaths);
   }
 

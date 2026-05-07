@@ -1,3 +1,4 @@
 name: base
 description: Base loadout configuration
-include: []
+include:
+  - instructions/AGENTS.base.md

@@ -1,0 +1,1 @@
+.loadout/instructions/AGENTS.base.md

@@ -79,7 +79,7 @@ export interface RenderedOutput {
 
 // Manifest entry stored in .loadout/.state.json
 export interface ManifestEntry {
-  tool: Tool;
+  tools: Tool[];        // All tools that share this output path
   kind: ArtifactKind;
   sourcePath: string;
   targetPath: string;

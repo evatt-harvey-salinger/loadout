@@ -28,10 +28,8 @@ loadout activate backend          # Activate it
 
 **Existing project with configs:**
 ```bash
-loadout init                      # Initialize .loadout/
-loadout instructions import       # Import AGENTS.md or CLAUDE.md
-loadout rule import .cursor/rules/style.mdc
-loadout skill import .claude/skills/debug
+loadout init                      # Initialize .loadout/ (auto-detects existing configs)
+loadout install                   # Or run separately to import existing configs
 loadout sync                      # Apply unified config
 ```
 
@@ -39,28 +37,37 @@ loadout sync                      # Apply unified config
 
 ## Importing Existing Configuration
 
-If you already have rules, skills, or instruction files scattered across tool directories, import them into `.loadout/` to unify management:
+If you already have rules, skills, or instruction files scattered across tool directories, `loadout install` discovers and imports them all at once:
 
 ```bash
-# Import project instructions (auto-detects AGENTS.md or CLAUDE.md)
-loadout instructions import
+loadout install                   # Discover and import all existing configs
+loadout install --dry-run         # Preview what would be imported
+loadout install -i                # Interactive selection mode
+loadout install --rules           # Only import rules
+loadout install --from cursor     # Only from Cursor directories
+loadout install --keep            # Keep original files after import
+```
 
-# Import rules from any tool's directory
+**Auto-detection on init:** When you run `loadout init`, it automatically detects existing configurations and offers to import them.
+
+**What gets discovered:**
+- Rules from `.claude/rules/`, `.cursor/rules/`, `.opencode/rules/`
+- Skills from `.claude/skills/`, `.cursor/skills/`, `.opencode/skills/`, `.agents/skills/`, `.pi/skills/`
+- Instruction files (`AGENTS.md`, `CLAUDE.md`) at project root
+
+**Conflict resolution:** When the same artifact exists in multiple tool directories, `loadout install` detects the conflict and lets you choose which version to import (or import both with renamed destinations).
+
+**Manual import:** For individual files, you can still use the granular import commands:
+
+```bash
 loadout rule import .cursor/rules/coding-style.mdc
-loadout rule import .claude/rules/api-guidelines.md
-loadout rule import ./CLAUDE.md              # Legacy instruction file as rule
-
-# Import skills
 loadout skill import .claude/skills/debugging
-loadout skill import ~/.cursor/skills/testing -g   # Import to global scope
-
-# Keep originals (don't delete after import)
-loadout rule import ./my-rule.md --keep
+loadout instructions import
 ```
 
 Imported artifacts are:
 1. Copied into `.loadout/rules/` or `.loadout/skills/`
-2. Automatically added to the `base` loadout (use `--loadout <name>` to change)
+2. Automatically added to the `base` loadout (use `--to <name>` to change)
 3. Original files deleted by default (use `--keep` to preserve)
 
 After importing, run `loadout sync` to render outputs to all tool directories.
@@ -86,9 +93,10 @@ Loadout stores all configuration in a `.loadout/` directory:
 ```
 .loadout/
 ├── loadout.yaml          # Root config (version, defaults)
-├── AGENTS.md             # Project instructions (always-on)
 ├── loadouts/             # Named configuration bundles
 │   └── base.yaml
+├── instructions/         # Per-loadout instruction files
+│   └── AGENTS.base.md    # Instructions for base loadout
 ├── rules/                # Portable rule files
 └── skills/               # Portable skill directories
 ```
@@ -365,7 +373,25 @@ loadout init -g           # Initialize ~/.config/loadout/
 loadout init --force      # Overwrite existing
 ```
 
-Creates the directory structure, a `base` loadout, and applies it automatically.
+Creates the directory structure, a `base` loadout, and applies it automatically. If existing tool configurations are detected, offers to import them.
+
+#### `loadout install`
+
+Discover and import existing tool configurations into loadout.
+
+```bash
+loadout install                   # Discover all, prompt before importing
+loadout install --dry-run         # Preview what would be imported
+loadout install -i                # Interactive selection mode
+loadout install -y                # Auto-confirm (import all, resolve conflicts automatically)
+loadout install --rules           # Only import rules
+loadout install --skills          # Only import skills
+loadout install --from cursor     # Only from specific tool directories
+loadout install --keep            # Keep original files (don't delete after import)
+loadout install --to staging      # Add to a specific loadout instead of base
+```
+
+Scans all known tool directories (`.claude/`, `.cursor/`, `.opencode/`, `.agents/`, `.pi/`) for rules, skills, and instruction files. Detects naming conflicts when the same artifact exists in multiple locations.
 
 #### `loadout create <name>`
 
@@ -524,19 +550,24 @@ skills/deploy/
 
 #### Instructions
 
-Project instructions in `AGENTS.md` are always included for AI agents.
+Each loadout can have its own instruction file at `.loadout/instructions/AGENTS.<loadout>.md`. The active loadout's instructions are rendered to `AGENTS.md` at project root.
 
 ```bash
-# Create AGENTS.md if it doesn't exist
-loadout instructions init
-loadout instructions init --force     # Overwrite existing
+# Create instruction file for a loadout
+loadout instructions init              # For active loadout (default: base)
+loadout instructions init backend      # For specific loadout
+loadout instructions init --force      # Overwrite existing
 
-# Edit AGENTS.md
-loadout instructions edit
+# Edit instruction file
+loadout instructions edit              # Edit active loadout's instructions
+loadout instructions edit backend      # Edit specific loadout's instructions
+
+# List instruction files
+loadout instructions list
 
 # Import existing instruction file
-loadout instructions import           # Auto-detect AGENTS.md or CLAUDE.md
-loadout instructions import ./README.md
+loadout instructions import            # Auto-detect AGENTS.md or CLAUDE.md
+loadout instructions import --to backend  # Import to specific loadout
 loadout instructions import ./docs/AGENTS.md --keep
 ```
 

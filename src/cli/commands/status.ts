@@ -126,7 +126,9 @@ function groupByArtifact(
   // Collect all tools
   const toolSet = new Set<Tool>();
   for (const result of driftResults) {
-    toolSet.add(result.entry.tool);
+    for (const tool of result.entry.tools) {
+      toolSet.add(tool);
+    }
   }
   const tools = Array.from(toolSet).sort();
 
@@ -148,7 +150,10 @@ function groupByArtifact(
     let overallStatus: DriftStatus = "ok";
 
     for (const result of results) {
-      toolStatus.set(result.entry.tool, result.status);
+      // Each entry may serve multiple tools
+      for (const tool of result.entry.tools) {
+        toolStatus.set(tool, result.status);
+      }
       const priority = STATUS_PRIORITY[result.status];
       if (priority > worstPriority) {
         worstPriority = priority;
@@ -426,8 +431,19 @@ export async function executeStatus(ctx: CommandContext, showReferences: boolean
 
   // Shadowed files from original apply
   if (state.shadowed.length > 0) {
-    log.dim(`${state.shadowed.length} shadowed (unmanaged files blocking):`);
-    for (const s of state.shadowed) log.dim(`  ? ${s.targetPath}`);
+    // Dedupe by targetPath for display (same file can shadow multiple tools)
+    const uniqueTargets = [...new Set(state.shadowed.map(s => s.targetPath))];
+    const toolsByTarget = new Map<string, string[]>();
+    for (const s of state.shadowed) {
+      const tools = toolsByTarget.get(s.targetPath) || [];
+      tools.push(s.tool);
+      toolsByTarget.set(s.targetPath, tools);
+    }
+    
+    log.dim(`${uniqueTargets.length} shadowed (unmanaged files blocking ${state.shadowed.length} outputs):`);
+    for (const target of uniqueTargets) {
+      const tools = toolsByTarget.get(target) || [];
+      log.dim(`  ? ${target} ${chalk.dim(`(${tools.join(", ")})`)}`);    }
     console.log();
   }
 

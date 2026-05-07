@@ -46,12 +46,12 @@ loadout activate backend ml       # Backend + ML combined
 Already have rules and skills scattered across tool directories?
 
 ```bash
-loadout init
-loadout instructions import                   # AGENTS.md or CLAUDE.md  
-loadout rule import .cursor/rules/style.mdc   # Cursor rules
-loadout skill import .claude/skills/debug     # Claude skills
+loadout init                      # Detects existing configs automatically
+loadout install                   # Or import them separately
 loadout sync
 ```
+
+`loadout install` scans all tool directories (`.claude/`, `.cursor/`, `.opencode/`, etc.) and imports everything it finds. Use `--dry-run` to preview, `-i` for interactive selection.
 
 ## Documentation
 

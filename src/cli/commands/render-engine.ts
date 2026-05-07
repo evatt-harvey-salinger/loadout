@@ -4,6 +4,10 @@
  * Single responsibility: given a target set of loadout names, resolve, plan,
  * and render them to disk. Policy decisions (what the target set should be)
  * live in policy.ts; this module is pure mechanism.
+ *
+ * Output follows the unified visual language (see docs/visual-language.md):
+ * - Artifacts as rows, tools as columns
+ * - Consistent change indicators (+, ~, -, ✓)
  */
 
 import { discoverLoadoutRoots, getGlobalRoot } from "../../core/discovery.js";
@@ -12,7 +16,14 @@ import { parseRootConfig } from "../../core/config.js";
 import { planRender, applyMultiPlan, removeManaged } from "../../core/render.js";
 import { loadState, clearState } from "../../core/manifest.js";
 import { log, heading, list } from "../../lib/output.js";
-import type { CommandContext, ResolvedLoadout, RenderPlan, LoadoutRoot } from "../../core/types.js";
+import {
+  groupOutputsByArtifact,
+  renderChangeTable,
+  renderChangeSummary,
+  renderDryRunSummary,
+  type ChangeType,
+} from "../../lib/artifact-table.js";
+import type { CommandContext, ResolvedLoadout, RenderPlan, LoadoutRoot, Tool } from "../../core/types.js";
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -133,23 +144,25 @@ export async function applyTargetSet(
 
   if (dryRun) {
     heading(`Would apply loadouts: ${targets.join(", ")} (${ctx.scope})`);
-    console.log();
 
-    const byTool = new Map<string, string[]>();
+    // Collect all tools and build output list with "added" change type
+    const toolSet = new Set<Tool>();
+    const outputs: Array<{
+      spec: (typeof plans)[0]["plan"]["outputs"][0]["spec"];
+      change: ChangeType;
+    }> = [];
+
     for (const { plan } of plans) {
       for (const { spec } of plan.outputs) {
-        const toolTargets = byTool.get(spec.tool) || [];
-        toolTargets.push(`${spec.targetPath} (${spec.mode})`);
-        byTool.set(spec.tool, toolTargets);
+        toolSet.add(spec.tool);
+        outputs.push({ spec, change: "added" });
       }
     }
 
-    for (const [tool, toolTargets] of byTool) {
-      console.log(`  ${tool}:`);
-      for (const target of toolTargets) {
-        log.dim(`    ${target}`);
-      }
-    }
+    const tools = Array.from(toolSet).sort();
+    const artifacts = groupOutputsByArtifact(outputs);
+    renderChangeTable(artifacts, tools, { showMode: true });
+    renderDryRunSummary(totalOutputs, tools.length);
 
     const allShadowed = plans.flatMap((p) => p.plan.shadowed);
     if (allShadowed.length > 0) {
@@ -175,40 +188,48 @@ export async function applyTargetSet(
 
   heading(`${verb} loadouts: ${targets.join(", ")} (${ctx.scope})`);
 
-  // Show change summary
+  // Build change-tagged outputs for table display
+  const addedSet = new Set(result.changes.added);
+  const updatedSet = new Set(result.changes.updated);
+  const toolSet = new Set<Tool>();
+
+  const outputs: Array<{
+    spec: (typeof plans)[0]["plan"]["outputs"][0]["spec"];
+    change: ChangeType;
+  }> = [];
+
+  for (const { plan } of plans) {
+    for (const { spec } of plan.outputs) {
+      toolSet.add(spec.tool);
+      let change: ChangeType = "unchanged";
+      if (addedSet.has(spec.targetPath)) change = "added";
+      else if (updatedSet.has(spec.targetPath)) change = "updated";
+      outputs.push({ spec, change });
+    }
+  }
+
+  // Add removed entries (they won't be in current plans)
+  // We can't show these in the table since we don't have their specs anymore,
+  // but we include them in the summary
+
+  const tools = Array.from(toolSet).sort();
+  const artifacts = groupOutputsByArtifact(outputs);
+
+  // Only show table if there are changes
   const totalChanges =
     result.changes.updated.length +
     result.changes.added.length +
     result.changes.removed.length;
 
-  if (totalChanges > 0) {
-    const parts = [];
-    if (result.changes.updated.length > 0)
-      parts.push(`${result.changes.updated.length} updated`);
-    if (result.changes.added.length > 0)
-      parts.push(`${result.changes.added.length} added`);
-    if (result.changes.removed.length > 0)
-      parts.push(`${result.changes.removed.length} removed`);
-    log.success(`${totalChanges} changes: ${parts.join(", ")}`);
-
-    if (result.changes.updated.length > 0) {
-      const displayUpdated = result.changes.updated.slice(0, 3);
-      const more =
-        result.changes.updated.length > 3
-          ? ` (+${result.changes.updated.length - 3} more)`
-          : "";
-      log.dim(
-        `  Updated: [${displayUpdated.map((p) => p.split("/").pop()).join(", ")}${more}]`
-      );
-    }
-  } else {
-    log.success(`${result.totalOutputs} outputs in sync`);
+  if (totalChanges > 0 || artifacts.length > 0) {
+    renderChangeTable(artifacts, tools);
   }
 
-  console.log();
-  for (const [tool, count] of result.byTool) {
-    log.dim(`  ${tool}: ${count} files`);
-  }
+  renderChangeSummary(
+    result.changes.added.length,
+    result.changes.updated.length,
+    result.changes.removed.length
+  );
 
   const allShadowed = plans.flatMap((p) => p.plan.shadowed);
   if (allShadowed.length > 0) {

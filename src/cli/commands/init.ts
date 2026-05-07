@@ -20,6 +20,9 @@ import { loadResolvedLoadout } from "../../core/resolve.js";
 import { planRender, applyPlan } from "../../core/render.js";
 import { log, heading, list } from "../../lib/output.js";
 import type { RootConfig, Scope } from "../../core/types.js";
+import { discoverImportableArtifacts } from "../../core/import-discovery.js";
+import { runInstall } from "./install.js";
+import * as readline from "node:readline";
 
 async function initLoadout(
   scope: Scope,
@@ -40,6 +43,7 @@ async function initLoadout(
   }
 
   // Create directory structure
+  ensureDir(path.join(loadoutPath, "instructions"));
   ensureDir(path.join(loadoutPath, "rules"));
   ensureDir(path.join(loadoutPath, "skills"));
   ensureDir(path.join(loadoutPath, "loadouts"));
@@ -57,7 +61,7 @@ async function initLoadout(
   const defaultLoadout = {
     name: "base",
     description: `Base ${scopeLabel} loadout`,
-    include: [] as string[],
+    include: scope === "project" ? ["instructions/AGENTS.base.md"] : ([] as string[]),
   };
   writeFile(
     path.join(loadoutPath, "loadouts", "base.yaml"),
@@ -79,7 +83,7 @@ async function initLoadout(
 
 Add your project-specific guidelines here.
 `;
-    writeFile(path.join(loadoutPath, "AGENTS.md"), agentsContent);
+    writeFile(path.join(loadoutPath, "instructions", "AGENTS.base.md"), agentsContent);
 
     // Create fallback script (always)
     writeFallbackScript(loadoutPath);
@@ -109,8 +113,9 @@ Add your project-specific guidelines here.
   log.success(`Created ${displayPath}loadout.yaml`);
   log.success(`Created ${displayPath}loadouts/base.yaml`);
   if (scope === "project") {
-    log.success(`Created ${displayPath}AGENTS.md`);
+    log.success(`Created ${displayPath}instructions/AGENTS.base.md`);
   }
+  log.success(`Created ${displayPath}instructions/`);
   log.success(`Created ${displayPath}rules/`);
   log.success(`Created ${displayPath}skills/`);
   if (scope === "project") {
@@ -155,9 +160,43 @@ Add your project-specific guidelines here.
   }
 
   console.log();
+  // Check for existing configurations to import (project scope only)
+  if (scope === "project") {
+    const projectRoot = process.cwd();
+    const discovery = discoverImportableArtifacts(projectRoot, {
+      loadoutPath,
+    });
+
+    if (discovery.artifacts.length > 0) {
+      console.log();
+      log.info(`Found ${discovery.artifacts.length} existing configuration(s) to import`);
+      
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const answer = await new Promise<string>((resolve) => {
+        rl.question("Import them now? [Y/n] ", (ans) => {
+          resolve(ans.trim().toLowerCase());
+          rl.close();
+        });
+      });
+
+      if (answer !== "n" && answer !== "no") {
+        await runInstall(projectRoot, loadoutPath, {
+          to: "base",
+        });
+      } else {
+        log.dim("Skipped. Run 'loadout install' later to import existing configs.");
+      }
+    }
+  }
+
+  console.log();
   log.info("Next steps:");
   if (scope === "project") {
-    log.dim("  • Edit .loadout/AGENTS.md with your project instructions");
+    log.dim("  • Edit .loadout/instructions/AGENTS.base.md with your project instructions");
     log.dim("  • Add rules with: loadout rule add <name>");
     log.dim("  • Run 'loadout sync' to re-sync after changes");
     console.log();

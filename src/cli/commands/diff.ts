@@ -6,6 +6,8 @@
  *   -g / --global  → global scope only
  *   -a / --all     → show diff for both scopes
  *   (none)         → auto-detect; error if name exists in both without flag
+ *
+ * Output follows unified visual language (see docs/visual-language.md).
  */
 
 import { Command } from "commander";
@@ -20,7 +22,12 @@ import {
   type ScopeFlags,
 } from "../../core/scope.js";
 import { log, heading } from "../../lib/output.js";
-import type { CommandContext } from "../../core/types.js";
+import {
+  groupOutputsByArtifact,
+  renderChangeTable,
+  type ChangeType,
+} from "../../lib/artifact-table.js";
+import type { CommandContext, Tool } from "../../core/types.js";
 
 export async function executeDiff(
   ctx: CommandContext,
@@ -33,40 +40,91 @@ export async function executeDiff(
   const state = loadState(ctx.configPath);
 
   heading(`Diff: ${loadoutName} (${ctx.scope})`);
-  console.log();
 
+  // Build sets for change detection
   const stateTargets = new Set(state?.entries.map((e) => e.targetPath) || []);
-  const creates = plan.outputs.filter((o) => !stateTargets.has(o.spec.targetPath));
-  const updates = plan.outputs.filter((o) => stateTargets.has(o.spec.targetPath));
+  const planTargets = new Set(plan.outputs.map((o) => o.spec.targetPath));
 
-  if (creates.length > 0) {
-    console.log(`ℹ Create (${creates.length}):`);
-    for (const { spec } of creates) console.log(`  + ${spec.targetPath}`);
-    console.log();
+  // Collect all tools
+  const toolSet = new Set<Tool>();
+  for (const { spec } of plan.outputs) {
+    toolSet.add(spec.tool);
   }
-
-  if (updates.length > 0) {
-    console.log(`ℹ Update (${updates.length}):`);
-    for (const { spec } of updates) console.log(`  ~ ${spec.targetPath}`);
-    console.log();
-  }
-
   if (state) {
-    const planTargets = new Set(plan.outputs.map((o) => o.spec.targetPath));
-    const deletes = state.entries.filter((e) => !planTargets.has(e.targetPath));
-    if (deletes.length > 0) {
-      console.log(`ℹ Delete (${deletes.length}):`);
-      for (const entry of deletes) console.log(`  - ${entry.targetPath}`);
-      console.log();
+    for (const entry of state.entries) {
+      for (const tool of entry.tools) {
+        toolSet.add(tool);
+      }
+    }
+  }
+  const tools = Array.from(toolSet).sort();
+
+  // Build outputs with change types
+  const outputs: Array<{
+    spec: (typeof plan.outputs)[0]["spec"];
+    change: ChangeType;
+  }> = [];
+
+  // Current plan outputs: create or update
+  for (const { spec } of plan.outputs) {
+    const change: ChangeType = stateTargets.has(spec.targetPath) ? "updated" : "added";
+    outputs.push({ spec, change });
+  }
+
+  // Deleted entries from state
+  if (state) {
+    for (const entry of state.entries) {
+      if (!planTargets.has(entry.targetPath)) {
+        // Use first tool for display (all tools share the same output)
+        outputs.push({
+          spec: {
+            tool: entry.tools[0],
+            kind: entry.kind,
+            sourcePath: entry.sourcePath,
+            targetPath: entry.targetPath,
+            mode: entry.mode,
+          },
+          change: "removed",
+        });
+      }
     }
   }
 
-  if (plan.shadowed.length > 0) {
-    console.log(`ℹ Shadowed (${plan.shadowed.length}):`);
-    for (const s of plan.shadowed) {
-      console.log(`  ! ${s.targetPath} (unmanaged file exists)`);
-    }
+  // Shadowed entries
+  for (const s of plan.shadowed) {
+    outputs.push({
+      spec: {
+        tool: s.tool,
+        kind: s.kind,
+        sourcePath: s.sourcePath,
+        targetPath: s.targetPath,
+        mode: "symlink", // Default, doesn't matter for display
+      },
+      change: "shadowed",
+    });
   }
+
+  if (outputs.length === 0) {
+    log.success("No changes");
+    return;
+  }
+
+  const artifacts = groupOutputsByArtifact(outputs);
+  renderChangeTable(artifacts, tools, { showAction: true });
+
+  // Summary counts
+  const added = outputs.filter((o) => o.change === "added").length;
+  const updated = outputs.filter((o) => o.change === "updated").length;
+  const removed = outputs.filter((o) => o.change === "removed").length;
+  const shadowed = outputs.filter((o) => o.change === "shadowed").length;
+
+  console.log();
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} to create`);
+  if (updated > 0) parts.push(`${updated} to update`);
+  if (removed > 0) parts.push(`${removed} to remove`);
+  if (shadowed > 0) parts.push(`${shadowed} shadowed`);
+  log.dim(`  ${parts.join(" • ")}`);
 }
 
 export const diffCommand = new Command("diff")

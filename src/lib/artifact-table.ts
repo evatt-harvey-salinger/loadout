@@ -1,9 +1,12 @@
 /**
- * Shared artifact table rendering utilities for info and status commands.
+ * Shared artifact table rendering utilities.
+ *
+ * All commands that display artifact information should use these utilities
+ * to maintain visual consistency. See docs/visual-language.md for the full spec.
  */
 
 import chalk from "chalk";
-import type { Tool } from "../core/types.js";
+import type { Tool, OutputMode } from "../core/types.js";
 
 // Sort order for artifact kinds in display
 // Prioritizes context-heavy kinds first, then alphabetical for the rest
@@ -32,7 +35,7 @@ export interface ArtifactRow {
  *   skills/codebase-layout → codebase-layout
  *   skills/codebase-layout/SKILL.md → codebase-layout
  *   rules/agent-definitions.md → agent-definitions
- *   AGENTS.md → AGENTS
+ *   instructions/AGENTS.base.md → AGENTS.base.md
  */
 export function getArtifactName(relativePath: string, kind: string): string {
   // For skills, extract the skill directory name
@@ -47,10 +50,14 @@ export function getArtifactName(relativePath: string, kind: string): string {
     if (match) return match[1];
   }
 
-  // For instructions at root level, strip .md extension
+  // For instructions, extract AGENTS.<loadout>.md filename
   if (kind === "instruction") {
-    const match = relativePath.match(/^([^/]+)\.md$/);
-    if (match) return match[1];
+    // Handle instructions/AGENTS.<loadout>.md -> AGENTS.<loadout>.md
+    const dirMatch = relativePath.match(/^instructions\/(AGENTS\.[^/]+\.md)$/);
+    if (dirMatch) return dirMatch[1];
+    // Handle legacy AGENTS.md at root
+    const rootMatch = relativePath.match(/^([^/]+\.md)$/);
+    if (rootMatch) return rootMatch[1];
   }
 
   // For extensions, strip the extensions/ prefix
@@ -150,4 +157,235 @@ export function calculateColumnWidths(
   );
   const nameWidth = Math.min(maxNameLen, maxNameWidth);
   return { kindWidth, nameWidth };
+}
+
+// ---------------------------------------------------------------------------
+// Change indicators — unified symbols for all commands
+// ---------------------------------------------------------------------------
+
+export type ChangeType = "added" | "updated" | "removed" | "unchanged" | "shadowed";
+
+export const CHANGE_SYMBOLS: Record<ChangeType, { symbol: string; color: (s: string) => string }> = {
+  added: { symbol: "+", color: chalk.green },
+  updated: { symbol: "~", color: chalk.yellow },
+  removed: { symbol: "-", color: chalk.red },
+  unchanged: { symbol: "✓", color: chalk.green },
+  shadowed: { symbol: "?", color: chalk.yellow },
+};
+
+// Mode abbreviations for dry-run display
+export const MODE_ABBREV: Record<OutputMode, string> = {
+  symlink: "sym",
+  copy: "copy",
+  generate: "gen",
+};
+
+// ---------------------------------------------------------------------------
+// Artifact change grouping — groups outputs by source artifact
+// ---------------------------------------------------------------------------
+
+/**
+ * Output info for a single (artifact, tool) pair.
+ */
+export interface ArtifactOutput {
+  tool: Tool;
+  targetPath: string;
+  mode: OutputMode;
+  change: ChangeType;
+}
+
+/**
+ * Grouped artifact info for table display.
+ */
+export interface GroupedArtifact {
+  kind: string;
+  name: string;
+  sourcePath: string;
+  outputs: Map<Tool, ArtifactOutput>;
+  overallChange: ChangeType;
+}
+
+/**
+ * Group outputs by source artifact (sourcePath).
+ * Returns artifacts sorted by kind priority then name.
+ */
+export function groupOutputsByArtifact(
+  outputs: Array<{
+    spec: { tool: Tool; kind: string; sourcePath: string; targetPath: string; mode: OutputMode };
+    change: ChangeType;
+  }>
+): GroupedArtifact[] {
+  const bySource = new Map<string, GroupedArtifact>();
+
+  for (const { spec, change } of outputs) {
+    const key = spec.sourcePath;
+    
+    if (!bySource.has(key)) {
+      // Extract relative path from sourcePath for display name
+      // This is a bit hacky but works for most cases
+      const parts = spec.sourcePath.split("/");
+      let relativePath = spec.sourcePath;
+      
+      // Try to find .loadout or loadout in the path and extract from there
+      const loadoutIdx = parts.findIndex(p => p === ".loadout" || p === "loadout");
+      if (loadoutIdx >= 0) {
+        relativePath = parts.slice(loadoutIdx + 1).join("/");
+      }
+      
+      bySource.set(key, {
+        kind: spec.kind,
+        name: getArtifactName(relativePath, spec.kind),
+        sourcePath: spec.sourcePath,
+        outputs: new Map(),
+        overallChange: "unchanged",
+      });
+    }
+
+    const artifact = bySource.get(key)!;
+    artifact.outputs.set(spec.tool, {
+      tool: spec.tool,
+      targetPath: spec.targetPath,
+      mode: spec.mode,
+      change,
+    });
+
+    // Update overall change to worst status
+    artifact.overallChange = worstChange(artifact.overallChange, change);
+  }
+
+  // Convert to array and sort
+  const artifacts = Array.from(bySource.values());
+  return sortArtifacts(artifacts);
+}
+
+/**
+ * Determine the "worst" change type (for overall status).
+ */
+function worstChange(a: ChangeType, b: ChangeType): ChangeType {
+  const priority: Record<ChangeType, number> = {
+    unchanged: 0,
+    added: 1,
+    updated: 2,
+    shadowed: 3,
+    removed: 4,
+  };
+  return priority[b] > priority[a] ? b : a;
+}
+
+// ---------------------------------------------------------------------------
+// Change table renderer
+// ---------------------------------------------------------------------------
+
+export interface ChangeTableOptions {
+  /** Show mode instead of change symbol (for dry-run) */
+  showMode?: boolean;
+  /** Show action column with overall change */
+  showAction?: boolean;
+}
+
+/**
+ * Render a change table showing artifacts as rows and tools as columns.
+ * Cells show change indicators (+, ~, -, ✓) or mode abbreviations.
+ */
+export function renderChangeTable(
+  artifacts: GroupedArtifact[],
+  tools: Tool[],
+  options: ChangeTableOptions = {}
+): void {
+  if (artifacts.length === 0) {
+    console.log(chalk.dim("  No changes."));
+    return;
+  }
+
+  const { showMode = false, showAction = false } = options;
+  const { kindWidth, nameWidth } = calculateColumnWidths(artifacts);
+  const toolCols = getToolColumns(tools);
+  const ACTION_W = 8;
+
+  // ── Header ───────────────────────────────────────────────────────────────
+  const kindH = chalk.dim("kind".padEnd(kindWidth));
+  const nameH = chalk.dim("artifact".padEnd(nameWidth));
+  const toolH = toolCols.map((c) => chalk.dim(c.tool)).join("  ");
+  const actionH = showAction ? "  " + chalk.dim("action") : "";
+  console.log(`  ${kindH}  ${nameH}  ${toolH}${actionH}`);
+
+  // ── Separator ─────────────────────────────────────────────────────────────
+  const sepParts = [
+    "─".repeat(kindWidth),
+    "─".repeat(nameWidth),
+    toolCols.map((c) => "─".repeat(c.width)).join("  "),
+  ];
+  if (showAction) sepParts.push("─".repeat(ACTION_W));
+  console.log(chalk.dim(`  ${sepParts.join("  ")}`));
+
+  // ── Rows ──────────────────────────────────────────────────────────────────
+  for (const artifact of artifacts) {
+    const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
+    const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
+
+    // Tool cells
+    const toolCells = toolCols
+      .map((c) => {
+        const output = artifact.outputs.get(c.tool);
+        if (!output) {
+          return chalk.dim("—") + " ".repeat(c.width - 1);
+        }
+
+        if (showMode) {
+          // Show mode abbreviation
+          const abbrev = MODE_ABBREV[output.mode];
+          const padded = abbrev.padEnd(c.width);
+          return output.change === "unchanged"
+            ? chalk.dim(padded)
+            : chalk.cyan(padded);
+        } else {
+          // Show change symbol
+          const { symbol, color } = CHANGE_SYMBOLS[output.change];
+          return color(symbol) + " ".repeat(c.width - 1);
+        }
+      })
+      .join("  ");
+
+    // Action cell (overall change)
+    let actionCell = "";
+    if (showAction) {
+      const { color } = CHANGE_SYMBOLS[artifact.overallChange];
+      actionCell = "  " + color(artifact.overallChange);
+    }
+
+    console.log(`  ${kindCell}  ${nameCell}  ${toolCells}${actionCell}`);
+  }
+}
+
+/**
+ * Render a summary line for changes.
+ */
+export function renderChangeSummary(
+  added: number,
+  updated: number,
+  removed: number
+): void {
+  const total = added + updated + removed;
+  if (total === 0) {
+    console.log(chalk.green("✓"), "All outputs in sync");
+    return;
+  }
+
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} added`);
+  if (updated > 0) parts.push(`${updated} updated`);
+  if (removed > 0) parts.push(`${removed} removed`);
+
+  console.log(chalk.green("✓"), `${total} changes: ${parts.join(", ")}`);
+}
+
+/**
+ * Render a dry-run summary.
+ */
+export function renderDryRunSummary(
+  totalOutputs: number,
+  totalTools: number
+): void {
+  console.log();
+  console.log(chalk.dim(`  ${totalOutputs} outputs to ${totalTools} tools`));
 }
