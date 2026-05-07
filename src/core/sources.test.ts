@@ -3,8 +3,7 @@
  * 
  * Tests the full flow of:
  * - Source discovery and resolution
- * - Cross-root `extends` chains
- * - Artifact inheritance from parent sources
+ * - Artifact availability from source roots
  * - Warning generation for missing sources
  */
 
@@ -16,6 +15,7 @@ import { createPluginAPI } from "./plugin.js";
 import { registerBuiltins } from "../builtins/index.js";
 import { collectRootsWithSources } from "./discovery.js";
 import { loadResolvedLoadout, resolveLoadout } from "./resolve.js";
+import { listLoadouts, findLoadoutDefinition } from "./config.js";
 import type { LoadoutRoot, CommandContext } from "./types.js";
 
 // Initialize builtins once for all tests
@@ -103,26 +103,13 @@ sources:
     "monorepo/packages/api/.loadout/loadouts/api.yaml": `
 name: api
 description: API package configuration
-extends: base
 include:
   - rules/api-endpoints.md
-`,
-    "monorepo/packages/api/.loadout/loadouts/api-strict.yaml": `
-name: api-strict
-description: Strict API configuration
-extends: api
-include:
-  - rules/strict-validation.md
 `,
     "monorepo/packages/api/.loadout/rules/api-endpoints.md": `---
 description: API endpoint conventions
 ---
 # API Endpoints
-`,
-    "monorepo/packages/api/.loadout/rules/strict-validation.md": `---
-description: Strict validation rules
----
-# Strict Validation
 `,
     "monorepo/packages/api/.loadout/AGENTS.md": `# API Package Instructions
 `,
@@ -137,7 +124,6 @@ sources:
     "monorepo/packages/web/.loadout/loadouts/web.yaml": `
 name: web
 description: Web package configuration
-extends: base
 include:
   - rules/components.md
 `,
@@ -149,11 +135,27 @@ description: Component guidelines
   });
 }
 
-describe("Sources: Extends Resolution", () => {
+describe("Sources: Root Collection", () => {
   beforeEach(setupMonorepoFixture);
   afterEach(cleanupFixture);
 
-  it("resolves extends chain across source boundaries", () => {
+  it("discovers source roots from loadout.yaml", () => {
+    const primaryRoot: LoadoutRoot = {
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      level: "project",
+      depth: 0,
+    };
+
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+
+    expect(warnings).toHaveLength(0);
+    expect(roots).toHaveLength(2); // primary + parent source
+    expect(roots[0].level).toBe("project");
+    expect(roots[1].level).toBe("source");
+    expect(roots[1].path).toContain("monorepo/.loadout");
+  });
+
+  it("makes loadouts from sources available", () => {
     const primaryRoot: LoadoutRoot = {
       path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
       level: "project",
@@ -161,96 +163,23 @@ describe("Sources: Extends Resolution", () => {
     };
 
     const { roots } = collectRootsWithSources(primaryRoot, false);
-    const loadout = resolveLoadout("api", roots);
 
-    // api extends base, which is in the parent source
-    expect(loadout.extendsChain).toEqual(["api", "base"]);
-    expect(loadout.description).toBe("API package configuration");
+    // Should be able to find 'base' which is defined in the parent source
+    const baseDef = findLoadoutDefinition("base", roots);
+    expect(baseDef).not.toBeNull();
+    expect(baseDef?.definition.name).toBe("base");
+    expect(baseDef?.rootPath).toContain("monorepo/.loadout");
   });
 
-  it("resolves multi-level extends chain", () => {
-    const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      level: "project",
-      depth: 0,
-    };
-
-    const { roots } = collectRootsWithSources(primaryRoot, false);
-    const loadout = resolveLoadout("api-strict", roots);
-
-    // api-strict -> api -> base
-    expect(loadout.extendsChain).toEqual(["api-strict", "api", "base"]);
-  });
-});
-
-describe("Sources: Artifact Resolution", () => {
-  beforeEach(setupMonorepoFixture);
-  afterEach(cleanupFixture);
-
-  it("includes artifacts from parent source via extends", () => {
-    const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      level: "project",
-      depth: 0,
-    };
-
-    const { roots } = collectRootsWithSources(primaryRoot, false);
-    const loadout = resolveLoadout("api", roots);
-
-    const relativePaths = loadout.items.map(i => i.relativePath);
-
-    // Should have local artifact
-    expect(relativePaths).toContain("rules/api-endpoints.md");
-    
-    // Should have inherited artifacts from base (in parent source)
-    expect(relativePaths).toContain("rules/shared-style.md");
-    expect(relativePaths).toContain("skills/debugging");
-  });
-
-  it("artifacts point to correct source paths", () => {
-    const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      level: "project",
-      depth: 0,
-    };
-
-    const { roots } = collectRootsWithSources(primaryRoot, false);
-    const loadout = resolveLoadout("api", roots);
-
-    const apiEndpoints = loadout.items.find(i => i.relativePath === "rules/api-endpoints.md");
-    const sharedStyle = loadout.items.find(i => i.relativePath === "rules/shared-style.md");
-    const debugging = loadout.items.find(i => i.relativePath === "skills/debugging");
-
-    // Local artifact should point to local .loadout/
-    expect(apiEndpoints?.sourcePath).toContain("packages/api/.loadout");
-    
-    // Inherited artifacts should point to parent .loadout/
-    expect(sharedStyle?.sourcePath).toContain("monorepo/.loadout");
-    expect(sharedStyle?.sourcePath).not.toContain("packages/api");
-    
-    expect(debugging?.sourcePath).toContain("monorepo/.loadout");
-  });
-
-  it("deduplicates artifacts with same relative path (base wins)", () => {
-    // Add a shared-style.md to the API package
-    const apiStylePath = path.join(
-      FIXTURES_DIR,
-      "monorepo/packages/api/.loadout/rules/shared-style.md"
-    );
-    fs.mkdirSync(path.dirname(apiStylePath), { recursive: true });
-    fs.writeFileSync(apiStylePath, "# Local version\n");
-
-    // Update api.yaml to include a duplicate of what base already has
-    const apiYamlPath = path.join(
-      FIXTURES_DIR,
-      "monorepo/packages/api/.loadout/loadouts/api.yaml"
-    );
-    fs.writeFileSync(apiYamlPath, `
-name: api
-extends: base
-include:
-  - rules/shared-style.md
-  - rules/api-endpoints.md
+  it("returns warnings for missing sources", () => {
+    // Add a missing source reference
+    const configPath = path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/loadout.yaml");
+    fs.writeFileSync(configPath, `
+version: "1"
+default: api
+sources:
+  - ../..
+  - ../missing-package
 `);
 
     const primaryRoot: LoadoutRoot = {
@@ -259,16 +188,71 @@ include:
       depth: 0,
     };
 
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("../missing-package");
+    // Should still have the valid roots
+    expect(roots.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("Sources: Loadout Resolution", () => {
+  beforeEach(setupMonorepoFixture);
+  afterEach(cleanupFixture);
+
+  it("resolves local loadout with local artifacts", () => {
+    const primaryRoot: LoadoutRoot = {
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      level: "project",
+      depth: 0,
+    };
+
     const { roots } = collectRootsWithSources(primaryRoot, false);
     const loadout = resolveLoadout("api", roots);
 
-    // Should only have one shared-style.md (deduplicated)
-    const sharedStyles = loadout.items.filter(i => i.relativePath === "rules/shared-style.md");
-    expect(sharedStyles).toHaveLength(1);
+    expect(loadout.name).toBe("api");
+    expect(loadout.description).toBe("API package configuration");
     
-    // Current behavior: base's version wins (processed first in reverse order)
-    // This matches "extends" semantics where base provides defaults
-    expect(sharedStyles[0].sourcePath).toContain("monorepo/.loadout");
+    const relativePaths = loadout.items.map(i => i.relativePath);
+    expect(relativePaths).toContain("rules/api-endpoints.md");
+  });
+
+  it("resolves loadout from source root", () => {
+    const primaryRoot: LoadoutRoot = {
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      level: "project",
+      depth: 0,
+    };
+
+    const { roots } = collectRootsWithSources(primaryRoot, false);
+    
+    // 'base' is defined in the parent monorepo source, not locally
+    const loadout = resolveLoadout("base", roots);
+
+    expect(loadout.name).toBe("base");
+    expect(loadout.description).toBe("Monorepo base configuration");
+    
+    const relativePaths = loadout.items.map(i => i.relativePath);
+    expect(relativePaths).toContain("rules/shared-style.md");
+    expect(relativePaths).toContain("skills/debugging");
+  });
+
+  it("artifacts point to their source root", () => {
+    const primaryRoot: LoadoutRoot = {
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      level: "project",
+      depth: 0,
+    };
+
+    const { roots } = collectRootsWithSources(primaryRoot, false);
+    const loadout = resolveLoadout("base", roots);
+
+    const sharedStyle = loadout.items.find(i => i.relativePath === "rules/shared-style.md");
+    
+    // Artifact should point to monorepo .loadout/, not api .loadout/
+    expect(sharedStyle?.sourcePath).toContain("monorepo/.loadout");
+    expect(sharedStyle?.sourcePath).not.toContain("packages/api");
   });
 });
 
@@ -289,10 +273,24 @@ describe("Sources: Full Context Resolution", () => {
     expect(sourceWarnings).toHaveLength(0);
     expect(roots.some(r => r.level === "source")).toBe(true);
     
-    // Should have items from both local and source
+    // Should have local artifacts
     const relativePaths = loadout.items.map(i => i.relativePath);
     expect(relativePaths).toContain("rules/api-endpoints.md");
-    expect(relativePaths).toContain("rules/shared-style.md");
+  });
+
+  it("can resolve loadouts defined in sources", async () => {
+    const ctx: CommandContext = {
+      scope: "project",
+      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/.state.json"),
+      projectRoot: path.join(FIXTURES_DIR, "monorepo/packages/api"),
+    };
+
+    // 'base' is defined in the parent source
+    const { loadout } = await loadResolvedLoadout(ctx, "base");
+
+    expect(loadout.name).toBe("base");
+    expect(loadout.items.some(i => i.relativePath === "rules/shared-style.md")).toBe(true);
   });
 
   it("returns source warnings for missing sources", async () => {
@@ -319,5 +317,3 @@ sources:
     expect(sourceWarnings[0]).toContain("../missing-package");
   });
 });
-
-

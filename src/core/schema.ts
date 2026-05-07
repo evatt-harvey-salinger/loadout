@@ -37,7 +37,6 @@ export const LoadoutIncludeSchema = z.union([
 export const LoadoutDefinitionSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  extends: z.string().optional(),
   tools: z.array(ToolSchema).optional(),
   include: z.array(LoadoutIncludeSchema),
 });

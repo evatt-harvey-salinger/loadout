@@ -24,7 +24,7 @@ import type {
 import { BUILTIN_TOOL_NAMES } from "../builtins/index.js";
 
 /**
- * Resolve a loadout by name, processing the extends chain.
+ * Resolve a loadout by name.
  */
 export function resolveLoadout(
   name: string,
@@ -34,84 +34,26 @@ export function resolveLoadout(
   // Load any YAML-defined kinds from the discovered roots before resolving
   // items, so inferKind() can match custom kinds. Idempotent.
   loadYamlKindsFromRoots(roots);
-  const extendsChain: string[] = [];
-  const seen = new Set<string>();
-  const allIncludes: Array<{
-    include: LoadoutInclude;
-    rootPath: string;
-    loadoutTools: Tool[];
-  }> = [];
 
-  let currentName: string | undefined = name;
-  let finalDescription: string | undefined;
-  let finalTools: Tool[] | undefined;
-  let finalRootPath: string | undefined;
-
-  // Walk the extends chain
-  while (currentName) {
-    if (seen.has(currentName)) {
-      throw new Error(
-        `Circular extends detected: ${[...extendsChain, currentName].join(" -> ")}`
-      );
-    }
-    seen.add(currentName);
-
-    const found = findLoadoutDefinition(currentName, roots);
-    if (!found) {
-      throw new Error(`Loadout not found: ${currentName}`);
-    }
-
-    const { definition, rootPath } = found;
-    extendsChain.push(currentName);
-
-    // First loadout in chain determines description and tools
-    if (!finalDescription && definition.description) {
-      finalDescription = definition.description;
-    }
-    if (!finalTools && definition.tools) {
-      finalTools = definition.tools;
-    }
-    if (!finalRootPath) {
-      finalRootPath = rootPath;
-    }
-
-    // Collect includes (will be processed in reverse order)
-    const loadoutTools = definition.tools || finalTools || [...BUILTIN_TOOL_NAMES];
-    for (const include of definition.include || []) {
-      allIncludes.push({ include, rootPath, loadoutTools });
-    }
-
-    currentName = definition.extends;
+  const found = findLoadoutDefinition(name, roots);
+  if (!found) {
+    throw new Error(`Loadout not found: ${name}`);
   }
 
-  // Process includes in reverse order (base first, overrides last)
-  // But for v1, we just flatten them—nearest wins on conflicts
+  const { definition, rootPath } = found;
+  const effectiveTools = definition.tools || rootConfig?.tools || [...BUILTIN_TOOL_NAMES];
+
   const items: ResolvedItem[] = [];
-  const seenPaths = new Set<string>();
-
-  // Reverse so base loadout items come first, then overrides
-  for (const { include, rootPath, loadoutTools } of allIncludes.reverse()) {
-    const resolved = resolveInclude(include, rootPath, loadoutTools);
-
-    // Skip if we've already seen this relative path (nearest wins)
-    if (seenPaths.has(resolved.relativePath)) {
-      continue;
-    }
-    seenPaths.add(resolved.relativePath);
-    items.push(resolved);
+  for (const include of definition.include || []) {
+    items.push(resolveInclude(include, rootPath, effectiveTools));
   }
-
-  // Determine effective tools
-  const effectiveTools =
-    finalTools || rootConfig?.tools || [...BUILTIN_TOOL_NAMES];
 
   return {
     name,
-    description: finalDescription,
+    description: definition.description,
     tools: effectiveTools,
     items,
-    extendsChain,
-    rootPath: finalRootPath!,
+    rootPath,
   };
 }
 

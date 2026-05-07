@@ -19,7 +19,6 @@ import type { Scope } from "../../core/types.js";
 
 interface CreateOptions extends ScopeFlags {
   description?: string;
-  extends?: string;
   noEdit?: boolean;
 }
 
@@ -27,7 +26,6 @@ export const createCommand = new Command("create")
   .description("Create a new loadout definition")
   .argument("<name>", "Loadout name")
   .option("-d, --description <desc>", "Loadout description")
-  .option("-e, --extends <base>", "Base loadout to extend")
   .option("--no-edit", "Don't open in editor after creating")
   .option(...SCOPE_FLAGS.local)
   .option(...SCOPE_FLAGS.global)
@@ -77,7 +75,6 @@ export const createCommand = new Command("create")
 
     // Build a documented template for the loadout
     const description = options.description || `${name} loadout`;
-    const extendsLine = options.extends ? `\nextends: ${options.extends}` : "";
     
     const template = `# yaml-language-server: $schema=loadout-schema.json
 #
@@ -99,14 +96,11 @@ export const createCommand = new Command("create")
 #     - path: rules/cursor-only.md
 #       tools: [cursor]              # Only render for Cursor
 #
-# Inheritance:
-#   extends: base                    # Inherit from another loadout
-#
 # Tool targeting (default: all tools):
 #   tools: [claude-code, cursor]     # Only target specific tools
 
 name: ${name}
-description: ${description}${extendsLine}
+description: ${description}
 
 # Add your artifacts here:
 include: []

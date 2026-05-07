@@ -35,7 +35,6 @@ export interface RootConfig {
 export interface LoadoutDefinition {
   name: string;
   description?: string;
-  extends?: string;
   tools?: Tool[];
   include: LoadoutInclude[];
 }
@@ -53,13 +52,12 @@ export interface ResolvedItem {
   tools: Tool[];         // Active tools for this item
 }
 
-// Resolved loadout (after processing the full extends chain)
+// Resolved loadout (after merging active loadouts)
 export interface ResolvedLoadout {
   name: string;
   description?: string;
   tools: Tool[];
   items: ResolvedItem[];
-  extendsChain: string[];  // For debugging / `info` display
   rootPath: string;        // Absolute path to the owning .loadout/ directory
 }
 

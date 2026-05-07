@@ -219,9 +219,6 @@ async function renderInfoForName(
 
   const meta: Record<string, string | undefined> = {};
   if (loadout.description) meta["Description"] = loadout.description;
-  if (loadout.extendsChain.length > 1) {
-    meta["Extends"] = loadout.extendsChain.join(" → ");
-  }
   meta["Root"] = loadout.rootPath;
 
   // Show sources if any

@@ -20,6 +20,7 @@ import {
   parseLoadoutDefinition,
   parseRootConfig,
 } from "../../core/config.js";
+import { loadState } from "../../core/manifest.js";
 import { resolveScopes, SCOPE_FLAGS, type ScopeFlags } from "../../core/scope.js";
 import { fileExists } from "../../lib/fs.js";
 import { log, heading } from "../../lib/output.js";
@@ -29,37 +30,56 @@ import chalk from "chalk";
 interface LoadoutInfo {
   name: string;
   isDefault: boolean;
+  isActive: boolean;
   count: number;
-  extends?: string;
   description?: string;
-  source?: string;  // Which root this loadout comes from
+  source: string;
   error?: boolean;
 }
 
 /**
- * Collect loadouts from all roots (local + sources + global).
- * Returns loadouts grouped with their source, and any warnings.
+ * Truncate a path with leading ellipsis if too long.
  */
-function collectAllLoadouts(
+function truncateSource(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  return "…" + str.slice(-(maxLen - 1));
+}
+
+/**
+ * Collect loadouts from a root and its sources.
+ */
+function collectLoadoutsFromRoot(
   primaryRoot: LoadoutRoot,
-  includeGlobal: boolean
+  activeNames: Set<string>,
+  seenNames: Set<string>,
+  sourceChain: string[]
 ): { infos: LoadoutInfo[]; warnings: string[] } {
-  const { roots, warnings } = collectRootsWithSources(primaryRoot, includeGlobal);
+  const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
   const infos: LoadoutInfo[] = [];
-  const seenNames = new Set<string>();
+
+  // Collect source references for footer
+  for (const root of roots) {
+    if (root.level === "source" && root.sourceRef) {
+      if (!sourceChain.includes(root.sourceRef)) {
+        sourceChain.push(root.sourceRef);
+      }
+    }
+  }
+
+  const rootConfig = parseRootConfig(primaryRoot.path);
 
   for (const root of roots) {
-    const rootConfig = parseRootConfig(root.path);
     const loadoutNames = listLoadouts(root.path);
 
     // Determine source label
-    let sourceLabel: string | undefined;
+    let sourceLabel: string;
     if (root.level === "source") {
       sourceLabel = root.sourceRef || path.basename(path.dirname(root.path));
     } else if (root.level === "global") {
       sourceLabel = "global";
+    } else {
+      sourceLabel = "local";
     }
-    // level === "project" → no source label (it's local)
 
     for (const name of loadoutNames) {
       // Skip if we've already seen this name (nearest wins)
@@ -67,6 +87,7 @@ function collectAllLoadouts(
       seenNames.add(name);
 
       const isDefault = root.level === "project" && rootConfig.default === name;
+      const isActive = activeNames.has(name);
       const defPath = path.join(root.path, "loadouts", `${name}.yaml`);
       const ymlPath = path.join(root.path, "loadouts", `${name}.yml`);
       const filePath = fileExists(defPath) ? defPath : ymlPath;
@@ -76,13 +97,13 @@ function collectAllLoadouts(
         infos.push({
           name,
           isDefault,
+          isActive,
           count: def.include.length,
-          extends: def.extends,
           description: def.description,
           source: sourceLabel,
         });
       } catch {
-        infos.push({ name, isDefault, count: 0, source: sourceLabel, error: true });
+        infos.push({ name, isDefault, isActive, count: 0, source: sourceLabel, error: true });
       }
     }
   }
@@ -90,35 +111,79 @@ function collectAllLoadouts(
   return { infos, warnings };
 }
 
-function printLoadouts(infos: LoadoutInfo[], title: string): void {
-  heading(title);
-
+/**
+ * Render the loadouts as a columnar table.
+ */
+function renderTable(infos: LoadoutInfo[], sourceChain: string[]): void {
   if (infos.length === 0) {
     log.dim("  No loadouts defined");
     return;
   }
 
-  // Compute column widths
-  const nameWidth = Math.max(...infos.map(i => i.name.length), 4);
-  const maxCount = Math.max(...infos.map(i => i.count));
-  const countWidth = Math.max(`${maxCount} items`.length, 6);
-  const sourceWidth = Math.max(...infos.map(i => (i.source || "").length), 0);
+  // Check if any loadout has a description
+  const hasDescriptions = infos.some(i => i.description);
 
+  // Calculate column widths
+  const nameWidth = Math.max(...infos.map(i => i.name.length), "loadout".length);
+  const sourceMaxWidth = 20;
+  const sourceWidth = Math.min(
+    Math.max(...infos.map(i => (i.source || "").length), "source".length),
+    sourceMaxWidth
+  );
+  const itemsWidth = 5; // "items" header
+
+  // Render header
+  const nameH = chalk.dim("loadout".padEnd(nameWidth));
+  const sourceH = chalk.dim("source".padEnd(sourceWidth));
+  const itemsH = chalk.dim("items".padStart(itemsWidth));
+  const descH = hasDescriptions ? "  " + chalk.dim("description") : "";
+  
+  console.log(`    ${nameH}     ${sourceH}  ${itemsH}${descH}`);
+
+  // Render separator
+  const sep = chalk.dim(
+    `    ${"─".repeat(nameWidth)}     ${"─".repeat(sourceWidth)}  ${"─".repeat(itemsWidth)}` +
+    (hasDescriptions ? `  ${"─".repeat(30)}` : "")
+  );
+  console.log(sep);
+
+  // Render rows
   for (const info of infos) {
     if (info.error) {
-      console.log(`  ${info.name.padEnd(nameWidth)}  ${chalk.red("(error reading definition)")}`);
+      const activeMarker = info.isActive ? chalk.green("▸") : " ";
+      const defaultMarker = info.isDefault ? chalk.cyan("*") : " ";
+      console.log(`  ${activeMarker} ${info.name.padEnd(nameWidth)} ${defaultMarker}   ${chalk.red("(error reading definition)")}`);
       continue;
     }
 
+    const activeMarker = info.isActive ? chalk.green("▸") : " ";
+    const defaultMarker = info.isDefault ? chalk.cyan("*") : " ";
     const nameCol = info.name.padEnd(nameWidth);
-    const itemWord = info.count === 1 ? "item" : "items";
-    const countStr = `${info.count} ${itemWord}`.padEnd(countWidth);
-    const marker = info.isDefault ? chalk.green(" *") : "  ";
-    const extendsInfo = info.extends ? chalk.dim(` → ${info.extends}`) : "";
-    const sourceInfo = info.source ? chalk.yellow(` [${info.source}]`) : "";
-    const desc = info.description ? chalk.dim(`  ${info.description}`) : "";
+    const sourceCol = truncateSource(info.source || "", sourceMaxWidth).padEnd(sourceWidth);
+    const itemsCol = String(info.count).padStart(itemsWidth);
+    const descCol = hasDescriptions && info.description 
+      ? "  " + chalk.dim(info.description) 
+      : "";
 
-    console.log(`  ${nameCol}${marker}  ${chalk.cyan(countStr)}${sourceInfo}${extendsInfo}${desc}`);
+    console.log(`  ${activeMarker} ${nameCol} ${defaultMarker}   ${chalk.yellow(sourceCol)}  ${chalk.cyan(itemsCol)}${descCol}`);
+  }
+
+  // Footer: show legend and source chain
+  console.log();
+  
+  const legendParts: string[] = [];
+  if (infos.some(i => i.isActive)) {
+    legendParts.push(`${chalk.green("▸")} active`);
+  }
+  if (infos.some(i => i.isDefault)) {
+    legendParts.push(`${chalk.cyan("*")} default`);
+  }
+  if (legendParts.length > 0) {
+    console.log(chalk.dim(`  ${legendParts.join("  ")}`));
+  }
+
+  if (sourceChain.length > 0) {
+    console.log(chalk.dim(`  sources: ${sourceChain.join(" → ")}`));
   }
 }
 
@@ -131,47 +196,70 @@ export const listCommand = new Command("list")
     const cwd = process.cwd();
     const scopes = await resolveScopes(options, cwd);
 
-    let hasAny = false;
+    const allInfos: LoadoutInfo[] = [];
+    const allWarnings: string[] = [];
+    const sourceChain: string[] = [];
 
-    for (const scope of scopes) {
-      if (scope === "project") {
-        const projectRoot = await findNearestLoadoutRoot(cwd);
-        if (projectRoot) {
-          const { infos, warnings } = collectAllLoadouts(projectRoot, false);
-          printLoadouts(infos, `Project loadouts (${projectRoot.path})`);
-          
-          // Show source warnings
-          if (warnings.length > 0) {
-            console.log();
-            for (const w of warnings) {
-              log.warn(w);
-            }
-          }
-          
-          console.log();
-          hasAny = true;
-        }
-      } else {
-        const globalRoot = getGlobalRoot();
-        if (globalRoot) {
-          const { infos, warnings } = collectAllLoadouts(globalRoot, false);
-          printLoadouts(infos, `Global loadouts (${globalRoot.path})`);
-          
-          if (warnings.length > 0) {
-            console.log();
-            for (const w of warnings) {
-              log.warn(w);
-            }
-          }
-          
-          console.log();
-          hasAny = true;
-        }
+    // Collect from project scope
+    if (scopes.includes("project")) {
+      const projectRoot = await findNearestLoadoutRoot(cwd);
+      if (projectRoot) {
+        const state = loadState(projectRoot.path);
+        const activeNames = new Set(state?.active || []);
+        // Each scope gets its own seenNames - no cross-scope deduplication
+        const seenNames = new Set<string>();
+        const { infos, warnings } = collectLoadoutsFromRoot(
+          projectRoot, 
+          activeNames, 
+          seenNames, 
+          sourceChain
+        );
+        allInfos.push(...infos);
+        allWarnings.push(...warnings);
       }
     }
 
-    if (!hasAny) {
+    // Collect from global scope (independent from project)
+    if (scopes.includes("global")) {
+      const globalRoot = getGlobalRoot();
+      if (globalRoot) {
+        const state = loadState(globalRoot.path);
+        const activeNames = new Set(state?.active || []);
+        // Each scope gets its own seenNames - no cross-scope deduplication
+        const seenNames = new Set<string>();
+        const { infos, warnings } = collectLoadoutsFromRoot(
+          globalRoot, 
+          activeNames, 
+          seenNames, 
+          sourceChain
+        );
+        allInfos.push(...infos);
+        allWarnings.push(...warnings);
+      }
+    }
+
+    if (allInfos.length === 0 && allWarnings.length === 0) {
       log.error("No loadout directories found.");
       log.dim("Run 'loadout init' or 'loadout init --global' to get started.");
+      return;
+    }
+
+    // Build title based on scopes
+    let title: string;
+    if (scopes.length === 1) {
+      title = scopes[0] === "project" ? "Project loadouts" : "Global loadouts";
+    } else {
+      title = "Available loadouts";
+    }
+    heading(title);
+
+    renderTable(allInfos, sourceChain);
+
+    // Show warnings
+    if (allWarnings.length > 0) {
+      console.log();
+      for (const w of allWarnings) {
+        log.warn(w);
+      }
     }
   });
