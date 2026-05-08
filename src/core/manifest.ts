@@ -10,6 +10,8 @@ import {
   writeFile,
   removeFile,
   isSymlink,
+  readSymlinkTarget,
+  findSymlinkParent,
   hashFile,
   hashDir,
   isDirectory,
@@ -146,7 +148,7 @@ export function isUnmanagedCollision(
  */
 export interface DriftResult {
   entry: ManifestEntry;
-  status: "ok" | "missing" | "modified" | "unlinked" | "broken";
+  status: "ok" | "missing" | "modified" | "unlinked" | "broken" | "misdirected";
 }
 
 export function detectDrift(
@@ -170,6 +172,22 @@ export function detectDrift(
     if (entry.mode === "symlink" && !isSymlink(fullPath)) {
       results.push({ entry, status: "unlinked" });
       continue;
+    }
+
+    // Check if symlink points to the expected source
+    if (entry.mode === "symlink") {
+      const actualTarget = readSymlinkTarget(fullPath);
+      if (actualTarget !== entry.sourcePath) {
+        results.push({ entry, status: "misdirected" });
+        continue;
+      }
+      
+      // Check if any parent directory is a symlink (external structure)
+      const symlinkParent = findSymlinkParent(fullPath);
+      if (symlinkParent) {
+        results.push({ entry, status: "misdirected" });
+        continue;
+      }
     }
 
     // Check hash — for symlinks, check source; for copy/generate, check target

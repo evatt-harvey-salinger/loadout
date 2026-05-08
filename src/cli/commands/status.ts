@@ -54,8 +54,9 @@ const STATUS_PRIORITY: Record<DriftStatus, number> = {
   ok: 0,
   modified: 1,
   unlinked: 2,
-  missing: 3,
-  broken: 4,
+  misdirected: 3,
+  missing: 4,
+  broken: 5,
 };
 
 // Status display symbols and colors
@@ -63,6 +64,7 @@ const STATUS_DISPLAY: Record<DriftStatus, { symbol: string; color: (s: string) =
   ok: { symbol: "✓", color: chalk.green },
   modified: { symbol: "~", color: chalk.yellow },
   unlinked: { symbol: "⚡", color: chalk.yellow },
+  misdirected: { symbol: "→", color: chalk.red },
   missing: { symbol: "!", color: chalk.red },
   broken: { symbol: "💀", color: chalk.red },
 };

@@ -21,6 +21,7 @@ import {
   fileExists,
   isDirectory,
   isSymlink,
+  findSymlinkParent,
   ensureDir,
   hashContent,
   walkDir,
@@ -313,6 +314,12 @@ export async function applyPlan(
       else removeFile(targetPath);
     }
 
+    // Remove any symlinked parent directories (external symlinks)
+    const symlinkParent = findSymlinkParent(targetPath);
+    if (symlinkParent) {
+      removeFile(symlinkParent);
+    }
+
     ensureDir(path.dirname(targetPath));
 
     if (spec.mode === "symlink") {
@@ -454,6 +461,12 @@ export async function applyMultiPlan(
     if (fileExists(targetPath) || isDirectory(targetPath) || isSymlink(targetPath)) {
       if (isDirectory(targetPath)) removeDir(targetPath);
       else removeFile(targetPath);
+    }
+
+    // Remove any symlinked parent directories (external symlinks)
+    const symlinkParent = findSymlinkParent(targetPath);
+    if (symlinkParent) {
+      removeFile(symlinkParent);
     }
 
     ensureDir(path.dirname(targetPath));

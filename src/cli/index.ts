@@ -8,6 +8,10 @@
  */
 
 import { Command, Help } from "commander";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json");
 import { initCommand } from "./commands/init.js";
 import { activateCommand } from "./commands/activate.js";
 import { deactivateCommand } from "./commands/deactivate.js";
@@ -82,7 +86,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
 export const cli = new Command()
   .name("loadout")
   .description("Composable configuration bundles for AI coding agents")
-  .version("0.1.0");
+  .version(pkg.version);
 
 for (const group of COMMAND_GROUPS) {
   for (const cmd of group.commands) {
