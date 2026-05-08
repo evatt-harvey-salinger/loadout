@@ -63,7 +63,7 @@ export interface KindSpec {
   id: string;
   description?: string;
   /**
-   * Returns true if a `.loadout/`-relative path belongs to this kind.
+   * Returns true if a `.loadouts/`-relative path belongs to this kind.
    * Called in insertion order; first match wins.
    */
   detect: (relativePath: string) => boolean;
@@ -183,7 +183,7 @@ export class Registry {
 
   /**
    * Return the first registered kind whose `detect` predicate matches the
-   * given `.loadout/`-relative path, or undefined if none matches.
+   * given `.loadouts/`-relative path, or undefined if none matches.
    */
   inferKind(relativePath: string): string | undefined {
     for (const kind of this._kinds.values()) {

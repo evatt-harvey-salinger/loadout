@@ -29,7 +29,7 @@ export interface ScopeResolution {
 
 /**
  * Check if we're currently in a loadout project.
- * Returns true only if there's a project-level .loadout/ directory
+ * Returns true only if there's a project-level .loadouts/ directory
  * (not just global or bundled).
  */
 export async function inProject(cwd: string = process.cwd()): Promise<boolean> {
@@ -60,7 +60,7 @@ export async function resolveScopes(
   // Explicit --local
   if (flags.local) {
     if (!hasProject) {
-      throw new Error("Not in a loadout project. Run 'loadout init' first.");
+      throw new Error("Not in a loadout project. Run 'loadouts init' first.");
     }
     return ["project"];
   }
@@ -68,7 +68,7 @@ export async function resolveScopes(
   // Explicit --global
   if (flags.global) {
     if (!hasGlobalRoot) {
-      throw new Error("No global loadout found at ~/.config/loadout");
+      throw new Error("No global loadout found at ~/.config/loadouts");
     }
     return ["global"];
   }
@@ -80,7 +80,7 @@ export async function resolveScopes(
 
   if (scopes.length === 0) {
     throw new Error(
-      "No loadout found. Run 'loadout init' or 'loadout init --global'."
+      "No loadout found. Run 'loadouts init' or 'loadouts init --global'."
     );
   }
 

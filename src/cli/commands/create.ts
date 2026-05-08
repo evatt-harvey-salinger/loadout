@@ -2,8 +2,8 @@
  * loadout create — Create a new loadout definition.
  *
  * Scope flags:
- *   -l / --local   → create in project .loadout/
- *   -g / --global  → create in ~/.config/loadout
+ *   -l / --local   → create in project .loadouts/
+ *   -g / --global  → create in ~/.config/loadouts
  *   (none)         → project if in one, else global
  */
 
@@ -82,7 +82,7 @@ export const createCommand = new Command("create")
 # ${description}
 #
 # A loadout defines which artifacts (rules, skills, prompts, etc.) are
-# activated together. Use 'include' to add artifacts from this .loadout/
+# activated together. Use 'include' to add artifacts from this .loadouts/
 # directory.
 #
 # Examples:

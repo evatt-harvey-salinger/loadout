@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Loadout CLI entry point.
+ * Loadouts CLI entry point.
  *
  * Bootstrap order:
  *   1. Check for updates (non-blocking background check).

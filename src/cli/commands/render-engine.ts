@@ -47,14 +47,14 @@ async function resolveMultipleLoadouts(
   let roots: LoadoutRoot[];
   if (ctx.scope === "global") {
     const globalRoot = getGlobalRoot();
-    if (!globalRoot) throw new Error("No global loadout found at ~/.config/loadout");
+    if (!globalRoot) throw new Error("No global loadout found at ~/.config/loadouts");
     // Global scope: global root + any sources it declares + bundled
     const collected = collectRootsWithSources(globalRoot, false, true);
     roots = collected.roots;
   } else {
     const discovered = await discoverLoadoutRoots(ctx.projectRoot);
     if (discovered.length === 0) {
-      throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
+      throw new Error("No .loadouts/ directory found. Run 'loadouts init' first.");
     }
     // Project scope: project root + sources + global + bundled
     const collected = collectRootsWithSources(discovered[0], true, true);
@@ -244,7 +244,7 @@ export async function applyTargetSet(
       log.dim(`  ${s.targetPath}  (${s.tool})`);
     }
     log.dim(
-      "These files take precedence over the loadout. Use 'loadout status' to review."
+      "These files take precedence over the loadout. Use 'loadouts status' to review."
     );
   }
 

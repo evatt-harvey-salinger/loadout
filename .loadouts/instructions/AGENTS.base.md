@@ -1,6 +1,6 @@
 # Loadout Development Guidelines
 
-This document provides guidance for agents working on the loadout codebase.
+This document provides guidance for agents working on the loadouts codebase.
 
 ## Project Overview
 
@@ -22,7 +22,7 @@ src/
 - **Artifact**: A piece of configuration (rule, skill, instruction, extension)
 - **Kind**: Type of artifact with specific layout and behavior
 - **Tool**: Target agent (claude-code, cursor, opencode, codex, pi)
-- **Scope**: Global (`~/.config/loadout`) or project (`.loadout/`)
+- **Scope**: Global (`~/.config/loadouts`) or project (`.loadouts/`)
 
 ## Visual Language
 
@@ -72,18 +72,18 @@ Tests use Vitest. Test files are colocated: `foo.ts` → `foo.test.ts`
 
 ### Preview changes without applying
 ```bash
-npm run loadout -- activate --dry-run <name>
-npm run loadout -- sync --dry-run
+npm run loadouts -- activate --dry-run <name>
+npm run loadouts -- sync --dry-run
 ```
 
 ### Check for issues
 ```bash
-npm run loadout -- check -v
-npm run loadout -- status
+npm run loadouts -- check -v
+npm run loadouts -- status
 ```
 
 ### Build and run locally
 ```bash
 npm run build
-npm run loadout -- <command>
+npm run loadouts -- <command>
 ```

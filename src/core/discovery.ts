@@ -1,5 +1,5 @@
 /**
- * Discovery: Find .loadout/ directories and resolve source references
+ * Discovery: Find .loadouts/ directories and resolve source references
  */
 
 import * as fs from "node:fs";
@@ -12,17 +12,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { LoadoutRoot, Scope, CommandContext, SourceRef } from "./types.js";
 import { findGitRoot } from "../lib/git.js";
 
-const LOADOUT_DIR = ".loadout";
+const LOADOUT_DIR = ".loadouts";
 const STATE_FILE = ".state.json";
 
 export function getGlobalConfigPath(): string {
-  return path.join(os.homedir(), ".config", "loadout");
+  return path.join(os.homedir(), ".config", "loadouts");
 }
 
 const GLOBAL_CONFIG_PATH = getGlobalConfigPath();
 
 /**
- * Discover all .loadout/ directories from cwd up to git root.
+ * Discover all .loadouts/ directories from cwd up to git root.
  * Returns them ordered from nearest (depth 0) to furthest.
  */
 export async function discoverLoadoutRoots(
@@ -72,7 +72,7 @@ export async function discoverLoadoutRoots(
 }
 
 /**
- * Find the nearest .loadout/ directory.
+ * Find the nearest .loadouts/ directory.
  */
 export async function findNearestLoadoutRoot(
   cwd: string = process.cwd()
@@ -109,9 +109,9 @@ export async function getContext(
   } else {
     const nearestRoot = await findNearestLoadoutRoot(cwd);
     if (!nearestRoot) {
-      throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
+      throw new Error("No .loadouts/ directory found. Run 'loadouts init' first.");
     }
-    // projectRoot is the directory containing .loadout/, not git root
+    // projectRoot is the directory containing .loadouts/, not git root
     // This allows subprojects in monorepos to have their own loadout
     const projectRoot = path.dirname(nearestRoot.path);
     return {
@@ -141,7 +141,7 @@ export function getGlobalRoot(): LoadoutRoot | null {
 }
 
 /**
- * Find the bundled directory shipped with loadout.
+ * Find the bundled directory shipped with loadouts.
  * This contains built-in loadouts and skills.
  */
 function findBundledPath(): string | null {
@@ -161,8 +161,8 @@ function findBundledPath(): string | null {
 }
 
 /**
- * Get the bundled root (ships with loadout CLI).
- * Contains built-in loadouts like 'loadout' for self-documentation.
+ * Get the bundled root (ships with loadouts CLI).
+ * Contains built-in loadouts like 'loadouts' for self-documentation.
  */
 export function getBundledRoot(): LoadoutRoot | null {
   const bundledPath = findBundledPath();
@@ -180,8 +180,8 @@ export function getBundledRoot(): LoadoutRoot | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a source path relative to a .loadout/ directory.
- * Handles ~, relative paths, and looks for .loadout/ within the target.
+ * Resolve a source path relative to a .loadouts/ directory.
+ * Handles ~, relative paths, and looks for .loadouts/ within the target.
  */
 export function resolveSourcePath(sourceRef: string, fromLoadoutDir: string): string | null {
   // Expand ~ to home directory
@@ -189,19 +189,19 @@ export function resolveSourcePath(sourceRef: string, fromLoadoutDir: string): st
     ? path.join(os.homedir(), sourceRef.slice(1))
     : sourceRef;
 
-  // Resolve relative to the directory containing .loadout/
+  // Resolve relative to the directory containing .loadouts/
   if (!path.isAbsolute(resolved)) {
     const fromDir = path.dirname(fromLoadoutDir);
     resolved = path.resolve(fromDir, resolved);
   }
 
-  // If the path points directly to a .loadout/ directory, use it
-  if (path.basename(resolved) === ".loadout" && fs.existsSync(resolved)) {
+  // If the path points directly to a .loadouts/ directory, use it
+  if (path.basename(resolved) === ".loadouts" && fs.existsSync(resolved)) {
     return resolved;
   }
 
-  // Otherwise, look for .loadout/ within the resolved path
-  const loadoutPath = path.join(resolved, ".loadout");
+  // Otherwise, look for .loadouts/ within the resolved path
+  const loadoutPath = path.join(resolved, ".loadouts");
   if (fs.existsSync(loadoutPath) && fs.statSync(loadoutPath).isDirectory()) {
     return loadoutPath;
   }
@@ -210,11 +210,11 @@ export function resolveSourcePath(sourceRef: string, fromLoadoutDir: string): st
 }
 
 /**
- * Parse sources from a loadout.yaml file.
+ * Parse sources from a loadouts.yaml file.
  * Returns empty array if file doesn't exist or has no sources.
  */
 function parseSourcesFromConfig(loadoutDir: string): SourceRef[] {
-  const configPath = path.join(loadoutDir, "loadout.yaml");
+  const configPath = path.join(loadoutDir, "loadouts.yaml");
   if (!fs.existsSync(configPath)) return [];
 
   try {
@@ -230,7 +230,7 @@ function parseSourcesFromConfig(loadoutDir: string): SourceRef[] {
  * Collect all roots starting from a primary root, following sources transitively.
  * Missing sources generate warnings but don't fail resolution.
  *
- * @param primaryRoot - The starting .loadout/ directory
+ * @param primaryRoot - The starting .loadouts/ directory
  * @param includeGlobal - Whether to append the global root
  * @param includeBundled - Whether to append the bundled root (default: true)
  * @returns Ordered list of roots (primary first, then sources, global, bundled last)
@@ -290,7 +290,7 @@ export function collectRootsWithSources(
   }
 
   // Append bundled root last (lowest priority)
-  // This provides built-in loadouts like 'loadout' for self-documentation
+  // This provides built-in loadouts like 'loadouts' for self-documentation
   if (includeBundled) {
     const bundledRoot = getBundledRoot();
     if (bundledRoot && !seen.has(bundledRoot.path)) {

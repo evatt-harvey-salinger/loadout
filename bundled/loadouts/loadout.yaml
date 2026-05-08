@@ -1,5 +1,0 @@
-name: loadout
-description: Self-documenting instructions for using loadout CLI
-
-include:
-  - skills/loadout-usage

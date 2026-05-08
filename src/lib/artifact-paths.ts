@@ -28,11 +28,11 @@ export function isProjectScope(level: LoadoutRoot["level"]): boolean {
  * Extract the relative artifact path from an absolute source path.
  * 
  * Handles:
- * - .loadout/ directories (project and global)
+ * - .loadouts/ directories (project and global)
  * - bundled/ directory (ships with CLI)
  * 
- * Returns the path relative to the loadout/bundled root, e.g.:
- * - "/path/to/.loadout/rules/my-rule.md" → "rules/my-rule.md"
+ * Returns the path relative to the loadouts/bundled root, e.g.:
+ * - "/path/to/.loadouts/rules/my-rule.md" → "rules/my-rule.md"
  * - "/path/to/bundled/skills/my-skill/SKILL.md" → "skills/my-skill/SKILL.md"
  */
 export function extractRelativePath(sourcePath: string): string {
@@ -44,8 +44,8 @@ export function extractRelativePath(sourcePath: string): string {
     return parts.slice(bundledIdx + 1).join("/");
   }
   
-  // Check for .loadout directory
-  const loadoutIdx = parts.findIndex(p => p === ".loadout");
+  // Check for .loadouts directory
+  const loadoutIdx = parts.findIndex(p => p === ".loadouts");
   if (loadoutIdx >= 0) {
     return parts.slice(loadoutIdx + 1).join("/");
   }

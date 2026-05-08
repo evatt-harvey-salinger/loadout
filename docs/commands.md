@@ -2,115 +2,115 @@
 
 ## Active Configuration
 
-### `loadout activate <names...>`
+### `loadouts activate <names...>`
 Add loadout(s) to the active set and render outputs.
 ```bash
-loadout activate backend              # Single loadout
-loadout activate base frontend        # Multiple loadouts
-loadout activate ml -g                # Global scope
-loadout activate backend --dry-run    # Preview only
+loadouts activate backend              # Single loadout
+loadouts activate base frontend        # Multiple loadouts
+loadouts activate ml -g                # Global scope
+loadouts activate backend --dry-run    # Preview only
 ```
 
-### `loadout deactivate <names...>`
+### `loadouts deactivate <names...>`
 Remove loadout(s) from the active set.
 ```bash
-loadout deactivate backend
+loadouts deactivate backend
 ```
 
-### `loadout sync`
+### `loadouts sync`
 Re-render active loadouts from latest definitions. Run after editing rules or skills.
 ```bash
-loadout sync              # All scopes
-loadout sync -l           # Project only
-loadout sync --dry-run    # Preview
+loadouts sync              # All scopes
+loadouts sync -l           # Project only
+loadouts sync --dry-run    # Preview
 ```
 
-### `loadout status`
+### `loadouts status`
 Show drift status. Detects config drift (definition changed) and output drift (files modified/missing).
 ```bash
-loadout status
+loadouts status
 ```
 
-### `loadout clear`
+### `loadouts clear`
 Deactivate all loadouts and remove all outputs.
 ```bash
-loadout clear             # Project scope
-loadout clear -g          # Global scope
-loadout clear -a          # Both scopes
+loadouts clear             # Project scope
+loadouts clear -g          # Global scope
+loadouts clear -a          # Both scopes
 ```
 
-### `loadout info [name]`
+### `loadouts info [name]`
 Show loadout details including artifacts, tools, and token estimates.
 ```bash
-loadout info              # Active loadout(s)
-loadout info backend      # Specific loadout
+loadouts info              # Active loadout(s)
+loadouts info backend      # Specific loadout
 ```
 
-### `loadout diff [name]`
+### `loadouts diff [name]`
 Preview what would change if a loadout were applied.
 ```bash
-loadout diff backend
+loadouts diff backend
 ```
 
 ---
 
-## Loadout Management
+## Bundle Management
 
-### `loadout init`
-Initialize a new `.loadout/` directory. Creates structure, base loadout, and applies it.
+### `loadouts init`
+Initialize a new `.loadouts/` directory. Creates structure, base loadout, and applies it.
 ```bash
-loadout init              # Project
-loadout init -g           # Global
-loadout init --force      # Overwrite existing
+loadouts init              # Project
+loadouts init -g           # Global
+loadouts init --force      # Overwrite existing
 ```
 
-### `loadout install`
+### `loadouts install`
 Discover and import existing tool configurations.
 ```bash
-loadout install                   # All configs
-loadout install --dry-run         # Preview
-loadout install -i                # Interactive
-loadout install --rules           # Rules only
-loadout install --from cursor     # From specific tool
-loadout install --keep            # Don't delete originals
+loadouts install                   # All configs
+loadouts install --dry-run         # Preview
+loadouts install -i                # Interactive
+loadouts install --rules           # Rules only
+loadouts install --from cursor     # From specific tool
+loadouts install --keep            # Don't delete originals
 ```
 
-### `loadout create <name>`
+### `loadouts create <name>`
 Create a new loadout definition.
 ```bash
-loadout create backend            # Project loadout
-loadout create ml -g              # Global loadout
-loadout create api --extends base # Extend another loadout
-loadout create test -d "Testing"  # With description
+loadouts create backend            # Project loadout
+loadouts create ml -g              # Global loadout
+loadouts create api --extends base # Extend another loadout
+loadouts create test -d "Testing"  # With description
 ```
 
-### `loadout edit <name>`
+### `loadouts edit <name>`
 Open a loadout definition in `$EDITOR`.
 ```bash
-loadout edit backend
+loadouts edit backend
 ```
 
-### `loadout remove [name]`
+### `loadouts remove [name]`
 Remove applied loadout outputs.
 ```bash
-loadout remove            # All outputs
-loadout remove backend    # Validate name first
-loadout remove --dry-run  # Preview
+loadouts remove            # All outputs
+loadouts remove backend    # Validate name first
+loadouts remove --dry-run  # Preview
 ```
 
-### `loadout list`
+### `loadouts list`
 List available loadouts with item count, description, and inheritance.
 ```bash
-loadout list              # All scopes
-loadout list -l           # Project only
-loadout list -g           # Global only
+loadouts list              # All scopes
+loadouts list -l           # Project only
+loadouts list -g           # Global only
 ```
 
-### `loadout check`
+### `loadouts check`
 Validate configuration (YAML syntax, file references, circular extends, tool prerequisites).
 ```bash
-loadout check
-loadout check -v          # Verbose
+loadouts check
+loadouts check -v          # Verbose
 ```
 
 ---
@@ -122,49 +122,49 @@ loadout check -v          # Verbose
 Create scoped advisory files that tools inject based on file context.
 
 ```bash
-loadout rule add my-rule                 # Create rule
-loadout rule add go -p "**/*.go"         # With path pattern
-loadout rule add strict --always-apply   # Always apply
-loadout rule list                        # List rules
-loadout rule edit my-rule                # Edit rule
-loadout rule remove my-rule              # Remove rule
-loadout rule import ./existing.md        # Import file
+loadouts rule add my-rule                 # Create rule
+loadouts rule add go -p "**/*.go"         # With path pattern
+loadouts rule add strict --always-apply   # Always apply
+loadouts rule list                        # List rules
+loadouts rule edit my-rule                # Edit rule
+loadouts rule remove my-rule              # Remove rule
+loadouts rule import ./existing.md        # Import file
 ```
 
-After creating a rule, add it to your loadout's `include` list and run `loadout sync`.
+After creating a rule, add it to your loadout's `include` list and run `loadouts sync`.
 
 ### Skills
 
 Create on-demand capabilities with instructions and supporting files.
 
 ```bash
-loadout skill add deploy                 # Create skill
-loadout skill add debug -g               # Global skill
-loadout skill list                       # List skills
-loadout skill edit deploy                # Edit skill
-loadout skill remove deploy              # Remove skill
-loadout skill import ./my-skill          # Import directory
+loadouts skill add deploy                 # Create skill
+loadouts skill add debug -g               # Global skill
+loadouts skill list                       # List skills
+loadouts skill edit deploy                # Edit skill
+loadouts skill remove deploy              # Remove skill
+loadouts skill import ./my-skill          # Import directory
 ```
 
-After creating a skill, add it to your loadout's `include` list and run `loadout sync`.
+After creating a skill, add it to your loadout's `include` list and run `loadouts sync`.
 
 ### Instructions
 
 Create per-loadout instruction files that render to `AGENTS.md` or `CLAUDE.md`.
 
 ```bash
-loadout instructions init                # Create for active loadout
-loadout instructions init backend        # For specific loadout
-loadout instructions edit                # Edit instructions
-loadout instructions list                # List instruction files
-loadout instructions import              # Import existing AGENTS.md
-loadout instructions import --loadout backend  # Import to specific loadout
+loadouts instructions init                # Create for active loadout
+loadouts instructions init backend        # For specific loadout
+loadouts instructions edit                # Edit instructions
+loadouts instructions list                # List instruction files
+loadouts instructions import              # Import existing AGENTS.md
+loadouts instructions import --loadout backend  # Import to specific loadout
 ```
 
 ### Kinds
 ```bash
-loadout kinds             # List registered kinds
-loadout kinds -v          # With detection rules
+loadouts kinds             # List registered kinds
+loadouts kinds -v          # With detection rules
 ```
 
 ---

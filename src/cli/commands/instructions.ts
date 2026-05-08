@@ -1,5 +1,5 @@
 /**
- * loadout instructions - Manage per-loadout instruction files
+ * loadouts instructions - Manage per-loadout instruction files
  * 
  * Instructions are stored as instructions/<loadout>.md and rendered to AGENTS.md
  */
@@ -34,7 +34,7 @@ export const instructionsCommand = new Command("instructions").description(
   "Manage per-loadout instruction files"
 );
 
-// loadout instructions init [loadout]
+// loadouts instructions init [loadout]
 instructionsCommand
   .command("init")
   .description("Create an instruction file for a loadout")
@@ -44,7 +44,7 @@ instructionsCommand
     const nearestRoot = await findNearestLoadoutRoot(process.cwd());
 
     if (!nearestRoot) {
-      log.error("No .loadout/ directory found. Run 'loadout init' first.");
+      log.error("No .loadouts/ directory found. Run 'loadouts init' first.");
       process.exit(1);
     }
 
@@ -53,8 +53,8 @@ instructionsCommand
 
     if (fileExists(filePath) && !options.force) {
       log.warn(`Instruction file already exists: ${filePath}`);
-      log.dim(`Edit it with: loadout instructions edit ${targetLoadout}`);
-      log.dim("Or overwrite with: loadout instructions init --force");
+      log.dim(`Edit it with: loadouts instructions edit ${targetLoadout}`);
+      log.dim("Or overwrite with: loadouts instructions init --force");
       process.exit(1);
     }
 
@@ -100,11 +100,11 @@ When completing a task:
     console.log();
     console.log(`  File: ${filePath}`);
     console.log();
-    log.dim("  Replace the template content with your instructions, then run 'loadout sync'");
+    log.dim("  Replace the template content with your instructions, then run 'loadouts sync'");
     log.dim(`  Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
   });
 
-// loadout instructions edit [loadout]
+// loadouts instructions edit [loadout]
 instructionsCommand
   .command("edit")
   .description("Edit an instruction file in $EDITOR")
@@ -113,7 +113,7 @@ instructionsCommand
     const nearestRoot = await findNearestLoadoutRoot(process.cwd());
 
     if (!nearestRoot) {
-      log.error("No .loadout/ directory found.");
+      log.error("No .loadouts/ directory found.");
       process.exit(1);
     }
 
@@ -122,7 +122,7 @@ instructionsCommand
 
     if (!fileExists(filePath)) {
       log.error(`Instruction file not found: instructions/AGENTS.${targetLoadout}.md`);
-      log.dim(`Create it with: loadout instructions init ${targetLoadout}`);
+      log.dim(`Create it with: loadouts instructions init ${targetLoadout}`);
       process.exit(1);
     }
 
@@ -139,7 +139,7 @@ instructionsCommand
     });
   });
 
-// loadout instructions import [path]
+// loadouts instructions import [path]
 instructionsCommand
   .command("import")
   .description("Import an existing instruction file into loadout")
@@ -153,7 +153,7 @@ instructionsCommand
     const nearestRoot = await findNearestLoadoutRoot(cwd);
 
     if (!nearestRoot) {
-      log.error("No .loadout/ directory found. Run 'loadout init' first.");
+      log.error("No .loadouts/ directory found. Run 'loadouts init' first.");
       process.exit(1);
     }
 
@@ -176,7 +176,7 @@ instructionsCommand
         sourcePath = claudePath;
       } else {
         log.error("No AGENTS.md or CLAUDE.md found in project root.");
-        log.dim("Specify a path: loadout instructions import <path>");
+        log.dim("Specify a path: loadouts instructions import <path>");
         process.exit(1);
       }
     }
@@ -206,10 +206,10 @@ instructionsCommand
 
     log.success(`Imported to instructions/AGENTS.${targetLoadout}.md`);
     log.dim(`Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
-    log.info("Run 'loadout sync' to apply changes.");
+    log.info("Run 'loadouts sync' to apply changes.");
   });
 
-// loadout instructions list
+// loadouts instructions list
 instructionsCommand
   .command("list")
   .description("List instruction files")
@@ -217,7 +217,7 @@ instructionsCommand
     const nearestRoot = await findNearestLoadoutRoot(process.cwd());
 
     if (!nearestRoot) {
-      log.error("No .loadout/ directory found.");
+      log.error("No .loadouts/ directory found.");
       process.exit(1);
     }
 
@@ -225,7 +225,7 @@ instructionsCommand
     
     if (!fileExists(instructionsDir)) {
       log.dim("No instruction files found.");
-      log.dim("Create one with: loadout instructions init <loadout>");
+      log.dim("Create one with: loadouts instructions init <loadout>");
       return;
     }
 
@@ -236,7 +236,7 @@ instructionsCommand
 
     if (files.length === 0) {
       log.dim("No instruction files found.");
-      log.dim("Create one with: loadout instructions init <loadout>");
+      log.dim("Create one with: loadouts instructions init <loadout>");
       return;
     }
 

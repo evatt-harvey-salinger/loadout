@@ -1,9 +1,9 @@
 /**
- * loadout init — Initialize a loadout.
+ * loadouts init — Initialize a loadout.
  *
  * Scope:
  *   -l / --local   → init in current directory (default)
- *   -g / --global  → init at ~/.config/loadout
+ *   -g / --global  → init at ~/.config/loadouts
  *
  * Unlike other commands, init defaults to local (most common use case).
  */
@@ -31,13 +31,13 @@ async function initLoadout(
   const loadoutPath =
     scope === "global"
       ? getGlobalConfigPath()
-      : path.join(process.cwd(), ".loadout");
+      : path.join(process.cwd(), ".loadouts");
 
   const scopeLabel = scope === "global" ? "global" : "project";
 
   if (fileExists(loadoutPath) && !options.force) {
     log.error(
-      `${scopeLabel === "global" ? "~/.config/loadout" : ".loadout/"} already exists. Use --force to reinitialize.`
+      `${scopeLabel === "global" ? "~/.config/loadouts" : ".loadouts/"} already exists. Use --force to reinitialize.`
     );
     process.exit(1);
   }
@@ -53,7 +53,7 @@ async function initLoadout(
     version: "1",
   };
   writeFile(
-    path.join(loadoutPath, "loadout.yaml"),
+    path.join(loadoutPath, "loadouts.yaml"),
     yaml.stringify(rootConfig)
   );
 
@@ -108,9 +108,9 @@ Add your project-specific guidelines here.
     }
   }
 
-  const displayPath = scope === "global" ? "~/.config/loadout" : ".loadout/";
+  const displayPath = scope === "global" ? "~/.config/loadouts" : ".loadouts/";
   heading(`Initialized ${displayPath}`);
-  log.success(`Created ${displayPath}loadout.yaml`);
+  log.success(`Created ${displayPath}loadouts.yaml`);
   log.success(`Created ${displayPath}loadouts/base.yaml`);
   if (scope === "project") {
     log.success(`Created ${displayPath}instructions/AGENTS.base.md`);
@@ -188,7 +188,7 @@ Add your project-specific guidelines here.
           to: "base",
         });
       } else {
-        log.dim("Skipped. Run 'loadout install' later to import existing configs.");
+        log.dim("Skipped. Run 'loadouts install' later to import existing configs.");
       }
     }
   }
@@ -196,15 +196,15 @@ Add your project-specific guidelines here.
   console.log();
   log.info("Next steps:");
   if (scope === "project") {
-    log.dim("  • Edit .loadout/instructions/AGENTS.base.md with your project instructions");
-    log.dim("  • Add rules with: loadout rule add <name>");
-    log.dim("  • Run 'loadout sync' to re-sync after changes");
+    log.dim("  • Edit .loadouts/instructions/AGENTS.base.md with your project instructions");
+    log.dim("  • Add rules with: loadouts rule add <name>");
+    log.dim("  • Run 'loadouts sync' to re-sync after changes");
     console.log();
     const gitRoot = await findGitRoot(process.cwd());
     const isAtGitRoot = gitRoot === process.cwd();
     if (isAtGitRoot) {
       log.info("Team setup (choose one):");
-      log.dim("  • Git hooks: git config core.hooksPath .loadout/hooks");
+      log.dim("  • Git hooks: git config core.hooksPath .loadouts/hooks");
       log.dim("  • Direnv:    direnv allow");
     } else {
       log.info("Team setup:");
@@ -212,19 +212,19 @@ Add your project-specific guidelines here.
       log.dim("  (Git hooks not available for subprojects)");
     }
   } else {
-    log.dim("  • Add rules with: loadout rule add <name> -g");
-    log.dim("  • Add skills with: loadout skill add <name> -g");
-    log.dim("  • Run 'loadout sync -g' to re-sync after changes");
+    log.dim("  • Add rules with: loadouts rule add <name> -g");
+    log.dim("  • Add skills with: loadouts skill add <name> -g");
+    log.dim("  • Run 'loadouts sync -g' to re-sync after changes");
   }
 }
 
 /**
  * Minimal project initialization for use by install command.
  * Creates the directory structure without prompts or auto-apply.
- * Returns the path to the created .loadout/ directory.
+ * Returns the path to the created .loadouts/ directory.
  */
 export async function initProjectLoadout(projectRoot: string): Promise<string> {
-  const loadoutPath = path.join(projectRoot, ".loadout");
+  const loadoutPath = path.join(projectRoot, ".loadouts");
 
   // Create directory structure
   ensureDir(path.join(loadoutPath, "instructions"));
@@ -237,7 +237,7 @@ export async function initProjectLoadout(projectRoot: string): Promise<string> {
     version: "1",
   };
   writeFile(
-    path.join(loadoutPath, "loadout.yaml"),
+    path.join(loadoutPath, "loadouts.yaml"),
     yaml.stringify(rootConfig)
   );
 
@@ -273,11 +273,11 @@ export async function initProjectLoadout(projectRoot: string): Promise<string> {
     writeFile(envrcPath, ENVRC_LINES.trim() + "\n");
   }
 
-  heading("Initialized .loadout/");
-  log.success("Created .loadout/loadout.yaml");
-  log.success("Created .loadout/loadouts/base.yaml");
+  heading("Initialized .loadouts/");
+  log.success("Created .loadouts/loadouts.yaml");
+  log.success("Created .loadouts/loadouts/base.yaml");
   if (isAtGitRoot) {
-    log.success("Created .loadout/hooks/ (git hooks)");
+    log.success("Created .loadouts/hooks/ (git hooks)");
   }
   log.success("Updated .envrc (direnv integration)");
   console.log();
@@ -288,7 +288,7 @@ export async function initProjectLoadout(projectRoot: string): Promise<string> {
 export const initCommand = new Command("init")
   .description("Initialize a loadout")
   .option("-l, --local", "Initialize in current directory (default)")
-  .option("-g, --global", "Initialize at ~/.config/loadout")
+  .option("-g, --global", "Initialize at ~/.config/loadouts")
   .option("--force", "Overwrite existing loadout")
   .action(async (options: { local?: boolean; global?: boolean; force?: boolean }) => {
     // Require explicit scope or default to local

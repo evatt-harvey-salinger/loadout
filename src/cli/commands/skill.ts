@@ -52,14 +52,14 @@ async function resolveRootPath(
   if (options.local) {
     const projectRoot = await findNearestLoadoutRoot(cwd);
     if (!projectRoot) {
-      throw new Error("Not in a loadout project. Run 'loadout init' first.");
+      throw new Error("Not in a loadout project. Run 'loadouts init' first.");
     }
     return { rootPath: projectRoot.path, scope: "project" };
   }
 
   if (options.global) {
     if (!hasGlobal()) {
-      throw new Error("No global loadout found. Run 'loadout init --global' first.");
+      throw new Error("No global loadout found. Run 'loadouts init --global' first.");
     }
     return { rootPath: getGlobalConfigPath(), scope: "global" };
   }
@@ -74,7 +74,7 @@ async function resolveRootPath(
     return { rootPath: getGlobalConfigPath(), scope: "global" };
   }
 
-  throw new Error("No loadout found. Run 'loadout init' or 'loadout init --global' first.");
+  throw new Error("No loadout found. Run 'loadouts init' or 'loadouts init --global' first.");
 }
 
 export const skillCommand = new Command("skill").description("Manage skills");
@@ -148,7 +148,7 @@ Include examples if helpful.
       console.log();
       console.log(`  File: ${skillMdPath}`);
       console.log();
-      log.dim("  Replace the template content with your skill, then run 'loadout sync'");
+      log.dim("  Replace the template content with your skill, then run 'loadouts sync'");
     }
   });
 

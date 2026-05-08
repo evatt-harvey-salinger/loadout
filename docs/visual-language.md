@@ -1,6 +1,6 @@
-# Loadout CLI Visual Language
+# Loadouts CLI Visual Language
 
-This document defines the unified visual language for all loadout CLI output. Follow these patterns when adding or modifying commands to maintain consistency.
+This document defines the unified visual language for all loadouts CLI output. Follow these patterns when adding or modifying commands to maintain consistency.
 
 ## Core Principle
 
@@ -217,7 +217,7 @@ log.success("8 changes applied");     // ✓ 8 changes applied (green)
 log.info("Checking prerequisites");   // ℹ Checking prerequisites (blue)
 log.warn("3 files shadowed");         // ⚠ 3 files shadowed (yellow)
 log.error("Failed to resolve");       // ✗ Failed to resolve (red)
-log.dim("Run 'loadout sync' to fix"); // (dimmed text)
+log.dim("Run 'loadouts sync' to fix"); // (dimmed text)
 ```
 
 ## Implementation

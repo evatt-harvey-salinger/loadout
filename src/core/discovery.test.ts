@@ -41,41 +41,41 @@ function cleanupFixture(): void {
 describe("resolveSourcePath", () => {
   beforeEach(() => {
     setupFixture({
-      "project/.loadout/loadout.yaml": "version: '1'",
-      "parent/.loadout/loadout.yaml": "version: '1'",
-      "sibling/configs/.loadout/loadout.yaml": "version: '1'",
+      "project/.loadouts/loadouts.yaml": "version: '1'",
+      "parent/.loadouts/loadouts.yaml": "version: '1'",
+      "sibling/configs/.loadouts/loadouts.yaml": "version: '1'",
     });
   });
 
   afterEach(cleanupFixture);
 
-  it("resolves relative path to parent .loadout/", () => {
-    const fromDir = path.join(FIXTURES_DIR, "project/.loadout");
+  it("resolves relative path to parent .loadouts/", () => {
+    const fromDir = path.join(FIXTURES_DIR, "project/.loadouts");
     const result = resolveSourcePath("../parent", fromDir);
-    expect(result).toBe(path.join(FIXTURES_DIR, "parent/.loadout"));
+    expect(result).toBe(path.join(FIXTURES_DIR, "parent/.loadouts"));
   });
 
   it("resolves relative path to sibling", () => {
-    const fromDir = path.join(FIXTURES_DIR, "project/.loadout");
+    const fromDir = path.join(FIXTURES_DIR, "project/.loadouts");
     const result = resolveSourcePath("../sibling/configs", fromDir);
-    expect(result).toBe(path.join(FIXTURES_DIR, "sibling/configs/.loadout"));
+    expect(result).toBe(path.join(FIXTURES_DIR, "sibling/configs/.loadouts"));
   });
 
   it("returns null for non-existent source", () => {
-    const fromDir = path.join(FIXTURES_DIR, "project/.loadout");
+    const fromDir = path.join(FIXTURES_DIR, "project/.loadouts");
     const result = resolveSourcePath("../nonexistent", fromDir);
     expect(result).toBeNull();
   });
 
-  it("handles direct .loadout/ path", () => {
-    const fromDir = path.join(FIXTURES_DIR, "project/.loadout");
-    const result = resolveSourcePath("../parent/.loadout", fromDir);
-    expect(result).toBe(path.join(FIXTURES_DIR, "parent/.loadout"));
+  it("handles direct .loadouts/ path", () => {
+    const fromDir = path.join(FIXTURES_DIR, "project/.loadouts");
+    const result = resolveSourcePath("../parent/.loadouts", fromDir);
+    expect(result).toBe(path.join(FIXTURES_DIR, "parent/.loadouts"));
   });
 
   it("expands ~ to home directory", () => {
-    const fromDir = path.join(FIXTURES_DIR, "project/.loadout");
-    // This won't resolve unless there's a ~/.loadout, so we just check it doesn't crash
+    const fromDir = path.join(FIXTURES_DIR, "project/.loadouts");
+    // This won't resolve unless there's a ~/.loadouts, so we just check it doesn't crash
     const result = resolveSourcePath("~/nonexistent-loadout-test", fromDir);
     expect(result).toBeNull();
   });
@@ -85,21 +85,21 @@ describe("collectRootsWithSources", () => {
   beforeEach(() => {
     setupFixture({
       // Primary project
-      "project/.loadout/loadout.yaml": `
+      "project/.loadouts/loadouts.yaml": `
 version: "1"
 sources:
   - ../parent
 `,
       // Parent with its own source
-      "parent/.loadout/loadout.yaml": `
+      "parent/.loadouts/loadouts.yaml": `
 version: "1"
 sources:
   - ../shared
 `,
-      "parent/.loadout/rules/parent-rule.md": "# Parent rule",
+      "parent/.loadouts/rules/parent-rule.md": "# Parent rule",
       // Shared (grandparent in source chain)
-      "shared/.loadout/loadout.yaml": "version: '1'",
-      "shared/.loadout/rules/shared-rule.md": "# Shared rule",
+      "shared/.loadouts/loadouts.yaml": "version: '1'",
+      "shared/.loadouts/rules/shared-rule.md": "# Shared rule",
     });
   });
 
@@ -107,7 +107,7 @@ sources:
 
   it("collects primary root first", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "project/.loadout"),
+      path: path.join(FIXTURES_DIR, "project/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -120,7 +120,7 @@ sources:
 
   it("follows sources transitively", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "project/.loadout"),
+      path: path.join(FIXTURES_DIR, "project/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -141,12 +141,12 @@ sources:
   it("detects cycles silently", () => {
     // Add a cycle: shared sources back to project
     setupFixture({
-      "project/.loadout/loadout.yaml": `
+      "project/.loadouts/loadouts.yaml": `
 version: "1"
 sources:
   - ../parent
 `,
-      "parent/.loadout/loadout.yaml": `
+      "parent/.loadouts/loadouts.yaml": `
 version: "1"
 sources:
   - ../project
@@ -154,7 +154,7 @@ sources:
     });
 
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "project/.loadout"),
+      path: path.join(FIXTURES_DIR, "project/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -167,7 +167,7 @@ sources:
 
   it("warns on missing source but continues", () => {
     setupFixture({
-      "project/.loadout/loadout.yaml": `
+      "project/.loadouts/loadouts.yaml": `
 version: "1"
 sources:
   - ../nonexistent
@@ -175,7 +175,7 @@ sources:
     });
 
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "project/.loadout"),
+      path: path.join(FIXTURES_DIR, "project/.loadouts"),
       level: "project",
       depth: 0,
     };

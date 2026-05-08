@@ -1,5 +1,5 @@
 /**
- * Shared fallback script content for loadout.
+ * Shared fallback script content for loadouts.
  * Used by both init and sync to keep the fallback script up to date.
  */
 
@@ -7,40 +7,40 @@ import * as path from "node:path";
 import { writeFile, makeExecutable, ensureDir } from "../lib/fs.js";
 
 export const FALLBACK_SCRIPT = `#!/bin/sh
-# Fallback sync for loadout - applies basic configuration without loadout installed
-# This script is called by git hooks and direnv when loadout is not available
+# Fallback sync for loadouts - applies basic configuration without loadouts installed
+# This script is called by git hooks and direnv when loadouts is not available
 
 set -e
 cd "$(dirname "$0")/.."
 
 # Skip if already synced
-[ -f ".loadout/.state.json" ] && exit 0
+[ -f ".loadouts/.state.json" ] && exit 0
 
-# If loadout is available, use it
-if command -v loadout >/dev/null 2>&1; then
-  echo "loadout: Applying base configuration..."
-  loadout sync -l
+# If loadouts is available, use it
+if command -v loadouts >/dev/null 2>&1; then
+  echo "loadouts: Applying base configuration..."
+  loadouts sync -l
   exit 0
 fi
 
-# Fallback: symlink all artifacts without loadout
+# Fallback: symlink all artifacts without loadouts
 echo ""
-echo "⚠ This project uses loadout for AI tool configuration."
-echo "  Install with: npm install -g loadout"
+echo "⚠ This project uses loadouts for AI tool configuration."
+echo "  Install with: npm install -g loadouts"
 echo ""
 echo "  Applying fallback configuration..."
 
 # Instructions
-if [ -f ".loadout/AGENTS.md" ] && [ ! -e "AGENTS.md" ]; then
-  ln -s .loadout/AGENTS.md AGENTS.md
+if [ -f ".loadouts/AGENTS.md" ] && [ ! -e "AGENTS.md" ]; then
+  ln -s .loadouts/AGENTS.md AGENTS.md
   echo "  ✓ AGENTS.md"
 fi
 if [ ! -e "CLAUDE.md" ]; then
   cat > CLAUDE.md << 'CLAUDE_EOF'
 # Claude Code Instructions
 
-> This file is auto-generated. Install loadout for full configuration.
-> npm install -g loadout && loadout sync
+> This file is auto-generated. Install loadouts for full configuration.
+> npm install -g loadouts && loadouts sync
 
 See [AGENTS.md](AGENTS.md) for project instructions.
 CLAUDE_EOF
@@ -48,7 +48,7 @@ CLAUDE_EOF
 fi
 
 # Rules - symlink to all tool directories
-for rule in .loadout/rules/*.md; do
+for rule in .loadouts/rules/*.md; do
   [ -f "$rule" ] || continue
   stem=$(basename "$rule" .md)
   for tooldir in .claude .cursor .opencode .pi; do
@@ -62,7 +62,7 @@ for rule in .loadout/rules/*.md; do
 done
 
 # Skills - symlink individual files to all tool directories
-for skilldir in .loadout/skills/*/; do
+for skilldir in .loadouts/skills/*/; do
   [ -d "$skilldir" ] || continue
   skillname=$(basename "$skilldir")
   find "$skilldir" -type f | while read -r file; do
@@ -80,17 +80,17 @@ for skilldir in .loadout/skills/*/; do
 done
 
 echo ""
-echo "  Run 'loadout sync' after installing for full configuration."
+echo "  Run 'loadouts sync' after installing for full configuration."
 `;
 
 export const HOOK_SCRIPT = `#!/bin/sh
-# Auto-sync loadout after checkout/clone/merge
-exec .loadout/sync-fallback.sh 2>/dev/null || true
+# Auto-sync loadouts after checkout/clone/merge
+exec .loadouts/sync-fallback.sh 2>/dev/null || true
 `;
 
 export const ENVRC_LINES = `
 # Auto-sync loadout on directory entry
-[ -x .loadout/sync-fallback.sh ] && .loadout/sync-fallback.sh
+[ -x .loadouts/sync-fallback.sh ] && .loadouts/sync-fallback.sh
 `;
 
 /**
@@ -104,7 +104,7 @@ export function writeFallbackScript(loadoutPath: string): void {
 
 /**
  * Write git hooks that call the fallback script.
- * Only meaningful when .loadout/ is at git root.
+ * Only meaningful when .loadouts/ is at git root.
  */
 export function writeGitHooks(loadoutPath: string): void {
   const hooksDir = path.join(loadoutPath, "hooks");

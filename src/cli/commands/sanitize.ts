@@ -66,7 +66,7 @@ export const sanitizeCommand = new Command("sanitize")
       }
     } else if (totalFixed > 0) {
       log.success(`Sanitized ${totalFixed} rule(s)`);
-      log.dim("Run 'loadout sync' to apply changes to tool directories.");
+      log.dim("Run 'loadouts sync' to apply changes to tool directories.");
     } else {
       log.success("All artifacts are already sanitized");
     }
