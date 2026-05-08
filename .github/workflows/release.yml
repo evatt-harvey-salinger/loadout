@@ -22,11 +22,6 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Debug versions
-        run: |
-          echo "Node: $(node -v)"
-          echo "npm: $(npm -v)"
-
       - name: Install dependencies
         run: npm ci
 
