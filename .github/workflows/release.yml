@@ -19,11 +19,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
-
-      - name: Upgrade npm to 11.x for Trusted Publishers support
-        run: npm install -g npm@11
 
       - name: Debug versions
         run: |
