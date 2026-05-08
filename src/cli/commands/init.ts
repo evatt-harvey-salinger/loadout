@@ -137,7 +137,7 @@ Add your project-specific guidelines here.
     const cwd = scope === "global" ? os.homedir() : process.cwd();
     const ctx = await getContext(scope, cwd);
     const { loadout, rootConfig: resolvedRootConfig } = await loadResolvedLoadout(ctx, "base");
-    const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
+    const plan = await planRender(loadout, ctx.projectRoot, ctx.scope, ctx.configPath);
 
     if (plan.errors.length > 0) {
       log.warn("Could not apply loadout:");
