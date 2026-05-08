@@ -1,6 +1,6 @@
 {
   "name": "@evatt/loadout",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Composable configuration bundles for AI coding agents",
   "type": "module",
   "bin": {
