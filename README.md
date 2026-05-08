@@ -18,12 +18,27 @@ loadout activate base backend ml  # Combine for ML backend work
 
 **Not every tool uses the same format.** Claude Code, Cursor, OpenCode, Codex, and Pi each have their own config locations and quirks. Loadout lets you write once and renders correctly for each tool.
 
+## Installation
+
+### npm (recommended)
+
+```bash
+npm install -g @evatt/loadout
+```
+
+### From source
+
+```bash
+git clone https://github.com/evatths/loadout.git
+cd loadout
+npm install
+npm run build
+npm link
+```
+
 ## Quick Start
 
 ```bash
-# Install
-npm install -g loadout
-
 # Initialize
 loadout init
 
@@ -74,4 +89,4 @@ Or read [docs/LOADOUT.md](docs/LOADOUT.md).
 
 ## License
 
-MIT
+Apache-2.0
