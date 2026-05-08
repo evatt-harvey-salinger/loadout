@@ -83,12 +83,14 @@ export function maxScopeWidth<T extends { scope: ScopeIndicator }>(items: T[]): 
 /**
  * Convert a LoadoutRoot to a ScopeIndicator.
  */
+import { isGlobalScope } from "./artifact-paths.js";
+
 export function rootToScope(root: LoadoutRoot): ScopeIndicator {
   if (root.level === "source" && root.sourceRef) {
     const shortName = root.sourceRef.split("/").pop() || root.sourceRef;
     return { type: "source", name: shortName };
   }
-  if (root.level === "global") {
+  if (isGlobalScope(root.level)) {
     return { type: "global" };
   }
   return { type: "local" };

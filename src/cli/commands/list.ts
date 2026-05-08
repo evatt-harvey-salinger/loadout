@@ -55,9 +55,10 @@ function collectLoadoutsFromRoot(
   primaryRoot: LoadoutRoot,
   activeNames: Set<string>,
   seenNames: Set<string>,
-  sourceChain: string[]
+  sourceChain: string[],
+  includeBundled: boolean = false
 ): { infos: LoadoutInfo[]; warnings: string[] } {
-  const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+  const { roots, warnings } = collectRootsWithSources(primaryRoot, false, includeBundled);
   const infos: LoadoutInfo[] = [];
 
   // Collect source references for footer
@@ -205,7 +206,8 @@ export const listCommand = new Command("list")
           projectRoot, 
           activeNames, 
           seenNames, 
-          sourceChain
+          sourceChain,
+          false  // Don't include bundled for project scope
         );
         allInfos.push(...infos);
         allWarnings.push(...warnings);
@@ -224,7 +226,8 @@ export const listCommand = new Command("list")
           globalRoot, 
           activeNames, 
           seenNames, 
-          sourceChain
+          sourceChain,
+          true  // Include bundled for global scope
         );
         allInfos.push(...infos);
         allWarnings.push(...warnings);

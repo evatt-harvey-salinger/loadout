@@ -9,6 +9,9 @@
 
 import { Command } from "commander";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import * as yaml from "yaml";
 import {
   findNearestLoadoutRoot,
@@ -135,14 +138,17 @@ Include examples if helpful.
 
     const scopeLabel = scope === "global" ? "global" : "project";
     log.success(`Created ${scopeLabel} skill: ${name}`);
-    log.dim(`  ${skillPath}/`);
 
-    // Open in editor unless --no-edit
-    if (!options.noEdit) {
+    // Open in editor unless --no-edit (Commander sets options.edit = false for --no-edit)
+    if (options.edit !== false) {
+      log.dim(`  ${skillPath}/`);
       await openInEditor(skillMdPath, { cwd: rootPath });
     } else {
-      const flag = scope === "global" ? " -g" : "";
-      log.info(`Edit with: loadout skill edit ${name}${flag}`);
+      // For agents/scripts: show clear path and instructions
+      console.log();
+      console.log(`  File: ${skillMdPath}`);
+      console.log();
+      log.dim("  Replace the template content with your skill, then run 'loadout sync'");
     }
   });
 
@@ -305,16 +311,59 @@ skillCommand
     log.success(`Removed skill: ${name} (${scope})`);
   });
 
+/** Find the bundled skills directory. */
+function findBundledSkillsPath(): string | null {
+  const candidates = [
+    // Development: relative to src/cli/commands/
+    path.resolve(__dirname, "../../../bundled/skills"),
+    // Production: relative to dist/cli/commands/
+    path.resolve(__dirname, "../../../bundled/skills"),
+  ];
+
+  for (const candidate of candidates) {
+    if (isDirectory(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/** List available bundled skills. */
+function listBundledSkills(): string[] {
+  const bundledPath = findBundledSkillsPath();
+  if (!bundledPath) return [];
+  return listFiles(bundledPath).filter((f) =>
+    isDirectory(path.join(bundledPath, f))
+  );
+}
+
 // loadout skill import <path>
 skillCommand
   .command("import")
   .description("Import an existing skill directory into loadout")
-  .argument("<path>", "Path to existing skill directory")
+  .argument("[path]", "Path to existing skill directory (or use --builtin)")
   .option("-l, --local", "Project scope")
   .option("-g, --global", "Global scope")
+  .option("--builtin <name>", "Import a bundled skill (e.g., loadout-usage)")
+  .option("--list-builtins", "List available bundled skills")
   .option("--loadout <name>", "Loadout to add skill to", "base")
   .option("--keep", "Keep original directory (don't delete after import)")
   .action(async (dirPath, options) => {
+    // Handle --list-builtins
+    if (options.listBuiltins) {
+      const skills = listBundledSkills();
+      if (skills.length === 0) {
+        log.error("No bundled skills found.");
+        process.exit(1);
+      }
+      heading("Bundled skills");
+      for (const name of skills) {
+        console.log(`  ${name}`);
+      }
+      console.log();
+      log.dim("Import with: loadout skill import --builtin <name>");
+      return;
+    }
     const cwd = process.cwd();
     let rootPath: string;
     let scope: Scope;
@@ -327,9 +376,27 @@ skillCommand
     }
 
     // Resolve the source path
-    const sourcePath = path.isAbsolute(dirPath)
-      ? dirPath
-      : path.resolve(cwd, dirPath);
+    let sourcePath: string;
+    let keepOriginal = options.keep;
+
+    if (options.builtin) {
+      // Import from bundled skills
+      const bundledPath = findBundledSkillsPath();
+      if (!bundledPath) {
+        log.error("Bundled skills directory not found.");
+        process.exit(1);
+      }
+      sourcePath = path.join(bundledPath, options.builtin);
+      keepOriginal = true; // Never delete bundled skills
+    } else if (dirPath) {
+      sourcePath = path.isAbsolute(dirPath)
+        ? dirPath
+        : path.resolve(cwd, dirPath);
+    } else {
+      log.error("Provide a path or use --builtin <name>");
+      log.dim("List bundled skills: loadout skill import --list-builtins");
+      process.exit(1);
+    }
 
     if (!isDirectory(sourcePath)) {
       log.error(`Directory not found: ${sourcePath}`);
@@ -375,8 +442,8 @@ skillCommand
       }
     }
 
-    // Remove original if not --keep
-    if (!options.keep) {
+    // Remove original if not --keep (and not a builtin)
+    if (!keepOriginal) {
       removeDir(sourcePath);
       log.dim(`Removed original: ${sourcePath}`);
     }

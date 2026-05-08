@@ -6,6 +6,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as yaml from "yaml";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { LoadoutRoot, Scope, CommandContext, SourceRef } from "./types.js";
 import { findGitRoot } from "../lib/git.js";
 
@@ -137,6 +140,41 @@ export function getGlobalRoot(): LoadoutRoot | null {
   return null;
 }
 
+/**
+ * Find the bundled directory shipped with loadout.
+ * This contains built-in loadouts and skills.
+ */
+function findBundledPath(): string | null {
+  const candidates = [
+    // Development: relative to src/core/
+    path.resolve(__dirname, "../../bundled"),
+    // Production: relative to dist/core/
+    path.resolve(__dirname, "../../bundled"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the bundled root (ships with loadout CLI).
+ * Contains built-in loadouts like 'loadout' for self-documentation.
+ */
+export function getBundledRoot(): LoadoutRoot | null {
+  const bundledPath = findBundledPath();
+  if (!bundledPath) return null;
+
+  return {
+    path: bundledPath,
+    level: "bundled",
+    depth: Infinity,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Source resolution
 // ---------------------------------------------------------------------------
@@ -194,11 +232,13 @@ function parseSourcesFromConfig(loadoutDir: string): SourceRef[] {
  *
  * @param primaryRoot - The starting .loadout/ directory
  * @param includeGlobal - Whether to append the global root
- * @returns Ordered list of roots (primary first, then sources in declaration order, global last)
+ * @param includeBundled - Whether to append the bundled root (default: true)
+ * @returns Ordered list of roots (primary first, then sources, global, bundled last)
  */
 export function collectRootsWithSources(
   primaryRoot: LoadoutRoot,
-  includeGlobal: boolean = true
+  includeGlobal: boolean = true,
+  includeBundled: boolean = true
 ): { roots: LoadoutRoot[]; warnings: string[] } {
   const roots: LoadoutRoot[] = [primaryRoot];
   const seen = new Set<string>([primaryRoot.path]);
@@ -240,11 +280,21 @@ export function collectRootsWithSources(
     }
   }
 
-  // Append global root last (lowest priority)
+  // Append global root (low priority)
   if (includeGlobal) {
     const globalRoot = getGlobalRoot();
     if (globalRoot && !seen.has(globalRoot.path)) {
       roots.push(globalRoot);
+      seen.add(globalRoot.path);
+    }
+  }
+
+  // Append bundled root last (lowest priority)
+  // This provides built-in loadouts like 'loadout' for self-documentation
+  if (includeBundled) {
+    const bundledRoot = getBundledRoot();
+    if (bundledRoot && !seen.has(bundledRoot.path)) {
+      roots.push(bundledRoot);
     }
   }
 

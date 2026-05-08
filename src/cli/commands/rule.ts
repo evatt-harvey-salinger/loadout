@@ -126,14 +126,17 @@ ruleCommand
 
     const scopeLabel = scope === "global" ? "global" : "project";
     log.success(`Created ${scopeLabel} rule: ${name}`);
-    log.dim(`  ${rulePath}`);
 
-    // Open in editor unless --no-edit
-    if (!options.noEdit) {
+    // Open in editor unless --no-edit (Commander sets options.edit = false for --no-edit)
+    if (options.edit !== false) {
+      log.dim(`  ${rulePath}`);
       await openInEditor(rulePath, { cwd: rootPath });
     } else {
-      const flag = scope === "global" ? " -g" : "";
-      log.info(`Edit with: loadout rule edit ${name}${flag}`);
+      // For agents/scripts: show clear path and instructions
+      console.log();
+      console.log(`  File: ${rulePath}`);
+      console.log();
+      log.dim("  Replace the template content with your rule, then run 'loadout sync'");
     }
   });
 

@@ -107,7 +107,7 @@ export interface AppliedState {
 // A discovered .loadout/ root directory
 export interface LoadoutRoot {
   path: string;          // Absolute path to .loadout/ directory
-  level: "project" | "source" | "global";
+  level: "project" | "source" | "global" | "bundled";
   depth: number;         // 0 = current dir, higher = further up tree / source chain
   sourceRef?: string;    // Original source reference (for debugging/display)
 }

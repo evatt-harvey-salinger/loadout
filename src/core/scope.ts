@@ -11,7 +11,8 @@
  * requires explicit scope when the same name exists in both scopes.
  */
 
-import { getContext, findNearestLoadoutRoot, getGlobalRoot } from "./discovery.js";
+import { getContext, findNearestLoadoutRoot, getGlobalRoot, getBundledRoot } from "./discovery.js";
+import { isProjectScope } from "../lib/artifact-paths.js";
 import { listLoadouts } from "./config.js";
 import type { Scope, CommandContext } from "./types.js";
 
@@ -28,10 +29,14 @@ export interface ScopeResolution {
 
 /**
  * Check if we're currently in a loadout project.
+ * Returns true only if there's a project-level .loadout/ directory
+ * (not just global or bundled).
  */
 export async function inProject(cwd: string = process.cwd()): Promise<boolean> {
   const root = await findNearestLoadoutRoot(cwd);
-  return root !== null;
+  // Only count as "in project" if we found a project-level root
+  // (global and bundled roots don't count)
+  return root !== null && isProjectScope(root.level);
 }
 
 /**
@@ -117,19 +122,25 @@ export function loadoutExistsInScope(name: string, scope: Scope): boolean {
 /**
  * Detect if a loadout name exists in multiple scopes (collision).
  * Returns the scopes where it exists.
+ * 
+ * Note: Bundled loadouts are available in both scopes, but we treat them
+ * as "project" scope for resolution purposes when in a project, else "global".
  */
 export async function detectCollision(
   name: string,
   cwd: string = process.cwd()
 ): Promise<Scope[]> {
   const found: Scope[] = [];
+  const hasProjectRoot = await inProject(cwd);
 
   // Check project scope
-  const projectRoot = await findNearestLoadoutRoot(cwd);
-  if (projectRoot) {
-    const projectLoadouts = listLoadouts(projectRoot.path);
-    if (projectLoadouts.includes(name)) {
-      found.push("project");
+  if (hasProjectRoot) {
+    const projectRoot = await findNearestLoadoutRoot(cwd);
+    if (projectRoot) {
+      const projectLoadouts = listLoadouts(projectRoot.path);
+      if (projectLoadouts.includes(name)) {
+        found.push("project");
+      }
     }
   }
 
@@ -139,6 +150,18 @@ export async function detectCollision(
     const globalLoadouts = listLoadouts(globalRoot.path);
     if (globalLoadouts.includes(name)) {
       found.push("global");
+    }
+  }
+
+  // Check bundled root - bundled loadouts are always global scope
+  // (they're tools that ship with loadout, not project-specific)
+  if (found.length === 0) {
+    const bundledRoot = getBundledRoot();
+    if (bundledRoot) {
+      const bundledLoadouts = listLoadouts(bundledRoot.path);
+      if (bundledLoadouts.includes(name)) {
+        found.push("global");
+      }
     }
   }
 

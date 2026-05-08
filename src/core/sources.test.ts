@@ -146,7 +146,7 @@ describe("Sources: Root Collection", () => {
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(0);
     expect(roots).toHaveLength(2); // primary + parent source
@@ -162,7 +162,7 @@ describe("Sources: Root Collection", () => {
       depth: 0,
     };
 
-    const { roots } = collectRootsWithSources(primaryRoot, false);
+    const { roots } = collectRootsWithSources(primaryRoot, false, false);
 
     // Should be able to find 'base' which is defined in the parent source
     const baseDef = findLoadoutDefinition("base", roots);
@@ -188,7 +188,7 @@ sources:
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("../missing-package");
@@ -208,7 +208,7 @@ describe("Sources: Loadout Resolution", () => {
       depth: 0,
     };
 
-    const { roots } = collectRootsWithSources(primaryRoot, false);
+    const { roots } = collectRootsWithSources(primaryRoot, false, false);
     const loadout = resolveLoadout("api", roots);
 
     expect(loadout.name).toBe("api");
@@ -225,7 +225,7 @@ describe("Sources: Loadout Resolution", () => {
       depth: 0,
     };
 
-    const { roots } = collectRootsWithSources(primaryRoot, false);
+    const { roots } = collectRootsWithSources(primaryRoot, false, false);
     
     // 'base' is defined in the parent monorepo source, not locally
     const loadout = resolveLoadout("base", roots);
@@ -245,7 +245,7 @@ describe("Sources: Loadout Resolution", () => {
       depth: 0,
     };
 
-    const { roots } = collectRootsWithSources(primaryRoot, false);
+    const { roots } = collectRootsWithSources(primaryRoot, false, false);
     const loadout = resolveLoadout("base", roots);
 
     const sharedStyle = loadout.items.find(i => i.relativePath === "rules/shared-style.md");
