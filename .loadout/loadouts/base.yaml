@@ -2,3 +2,4 @@ name: base
 description: Base loadout configuration
 include:
   - instructions/AGENTS.base.md
+  - rules/release.md
