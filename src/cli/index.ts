@@ -29,6 +29,7 @@ import { docsCommand } from "./commands/docs.js";
 import { sanitizeCommand } from "./commands/sanitize.js";
 import { fallbackCommand } from "./commands/fallback.js";
 import { installCommand } from "./commands/install.js";
+import { updateCommand } from "./commands/update.js";
 
 // ---------------------------------------------------------------------------
 // Command groups — controls help output order and section headers
@@ -73,6 +74,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
     title: "Help",
     commands: [
       docsCommand,
+      updateCommand,
     ],
   },
 ];
