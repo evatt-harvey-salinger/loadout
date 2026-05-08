@@ -25,7 +25,7 @@ describe("Registry.inferKind", () => {
   });
 
   it("infers instruction kind", () => {
-    expect(reg.inferKind("AGENTS.md")).toBe("instruction");
+    expect(reg.inferKind("instructions/AGENTS.base.md")).toBe("instruction");
   });
 
   it("returns undefined for unknown path", () => {
