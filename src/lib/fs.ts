@@ -54,6 +54,46 @@ export function isSymlink(filePath: string): boolean {
 }
 
 /**
+ * Read the target of a symlink and resolve to absolute path.
+ * Returns null if not a symlink or on error.
+ */
+export function readSymlinkTarget(linkPath: string): string | null {
+  try {
+    if (!isSymlink(linkPath)) return null;
+    const target = fs.readlinkSync(linkPath);
+    // Resolve relative symlink targets against the link's directory
+    if (path.isAbsolute(target)) {
+      return target;
+    }
+    return path.resolve(path.dirname(linkPath), target);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if any parent directory in a path is a symlink.
+ * Returns the first symlinked parent path, or null if none.
+ */
+export function findSymlinkParent(filePath: string): string | null {
+  const parts = filePath.split(path.sep).filter(Boolean);
+  let current = filePath.startsWith(path.sep) ? path.sep : "";
+  
+  // Check all parents except the final component (which may legitimately be a symlink)
+  for (let i = 0; i < parts.length - 1; i++) {
+    current = path.join(current, parts[i]);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) {
+        return current;
+      }
+    } catch {
+      // Path doesn't exist yet, that's fine
+    }
+  }
+  return null;
+}
+
+/**
  * Create a symlink (relative if possible).
  * Idempotent: if symlink already exists with correct target, does nothing.
  */
