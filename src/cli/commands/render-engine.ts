@@ -10,7 +10,7 @@
  * - Consistent change indicators (+, ~, -, ✓)
  */
 
-import { discoverLoadoutRoots, getGlobalRoot } from "../../core/discovery.js";
+import { discoverLoadoutRoots, getGlobalRoot, collectRootsWithSources } from "../../core/discovery.js";
 import { resolveLoadout, getInstructionItem } from "../../core/resolve.js";
 import { parseRootConfig } from "../../core/config.js";
 import { planRender, applyMultiPlan, removeManaged } from "../../core/render.js";
@@ -43,17 +43,22 @@ async function resolveMultipleLoadouts(
   names: string[],
   ctx: CommandContext
 ): Promise<Array<{ loadout: ResolvedLoadout; plan: RenderPlan }>> {
-  // Get roots based on scope
+  // Get roots based on scope, including sources and bundled
   let roots: LoadoutRoot[];
   if (ctx.scope === "global") {
     const globalRoot = getGlobalRoot();
     if (!globalRoot) throw new Error("No global loadout found at ~/.config/loadout");
-    roots = [globalRoot];
+    // Global scope: global root + any sources it declares + bundled
+    const collected = collectRootsWithSources(globalRoot, false, true);
+    roots = collected.roots;
   } else {
-    roots = await discoverLoadoutRoots(ctx.projectRoot);
-    if (roots.length === 0) {
+    const discovered = await discoverLoadoutRoots(ctx.projectRoot);
+    if (discovered.length === 0) {
       throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
     }
+    // Project scope: project root + sources + global + bundled
+    const collected = collectRootsWithSources(discovered[0], true, true);
+    roots = collected.roots;
   }
 
   const rootConfig = parseRootConfig(ctx.configPath);

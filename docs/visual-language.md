@@ -31,7 +31,7 @@ All commands that display artifact information should use this columnar format:
 1. `kind` — artifact kind (instruction, rule, skill, extension, etc.)
 2. `artifact` — display name (not full path)
 3. Additional context columns (tokens, mode, action) — optional, command-specific
-4. Tool columns — one per tool, sorted alphabetically
+4. Tool columns — one per tool, in canonical order: `claude-code`, `cursor`, `opencode`, `codex`, `pi`
 5. Status column — optional, for overall row status
 
 ### Column Widths
@@ -52,11 +52,15 @@ Use these symbols consistently across all commands:
 | `-`    | red    | removed, deleted           | activate, sync, diff |
 | `!`    | red    | missing, error             | status               |
 | `?`    | yellow | shadowed (blocked)         | status, activate     |
+| `⚡`    | yellow | unlinked (symlink broken)  | status               |
+| `💀`    | red    | broken (unrecoverable)     | status               |
 | `—`    | dim    | not applicable             | info, status         |
 | `▸`    | green  | active loadout             | list, info           |
 | `•`    | dim    | global scope               | info                 |
 | `◦`    | cyan   | local/project scope        | info                 |
 | `→`    | yellow | external source            | info                 |
+
+**Cell semantics:** Use `—` for not-applicable tool cells (never leave cells blank).
 
 ### In Table Cells
 - Symbols are left-aligned in their column
@@ -113,7 +117,7 @@ Loadout status
 ```
 
 Status column shows the worst drift status across all tools for that artifact.
-Drift indicators: `✓` ok, `~` modified, `⚡` unlinked, `!` missing, `💀` broken.
+Drift indicators (worst to best): `💀` broken > `!` missing > `⚡` unlinked > `~` modified > `✓` ok.
 
 ### `activate` / `sync` / `deactivate` — Apply changes
 ```

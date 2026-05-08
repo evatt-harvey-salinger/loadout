@@ -1,3 +1,6 @@
+---
+description: Release guidelines
+---
 # Release Process
 
 To publish a new version:

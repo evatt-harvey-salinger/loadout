@@ -70,12 +70,28 @@ loadout sync
 
 ## Documentation
 
+Loadout is self-documenting:
+
 ```bash
-loadout docs          # Full documentation
-loadout --help        # Command reference
+loadout docs              # Overview and quick reference
+loadout docs quickstart   # Get started in 60 seconds
+loadout docs concepts     # Core model explained
+loadout docs commands     # Full command reference
+loadout docs --list       # List all topics
 ```
 
-Or read [docs/LOADOUT.md](docs/LOADOUT.md).
+Or read the full reference: [LOADOUT.md](LOADOUT.md)
+
+### For AI Agents
+
+Loadout includes a bundled skill that teaches AI agents how to use it:
+
+```bash
+loadout skill import --builtin loadout-usage
+loadout sync
+```
+
+This adds a skill that triggers when agents are editing agent configuration (rules, skills, instructions), guiding them to use the CLI and `loadout docs` for details.
 
 ## Supported Tools
 

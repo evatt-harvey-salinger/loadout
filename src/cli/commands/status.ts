@@ -33,6 +33,7 @@ import {
   calculateColumnWidths,
   KIND_SORT_ORDER,
 } from "../../lib/artifact-table.js";
+import { extractRelativePath } from "../../lib/artifact-paths.js";
 import {
   type ScopeIndicator,
   getScopeFromRoots,
@@ -119,15 +120,23 @@ function detectConfigDrift(plan: RenderPlan, state: AppliedState): ConfigDrift {
  * Convert sourcePath to a display-friendly relative path.
  */
 function getRelativePath(sourcePath: string, configPath: string, projectRoot: string): string {
+  // Try the consolidated helper first (handles bundled, .loadout, etc.)
+  const extracted = extractRelativePath(sourcePath);
+  // If it extracted something meaningful (not just parent/basename fallback)
+  if (!extracted.includes(path.sep) || extracted.startsWith("skills/") || 
+      extracted.startsWith("rules/") || extracted.startsWith("instructions/") ||
+      extracted.startsWith("extensions/")) {
+    return extracted;
+  }
+
+  // Fallback to relative path calculation
   const relConfig = path.relative(configPath, sourcePath);
   if (!relConfig.startsWith("..")) return relConfig;
 
   const relProject = path.relative(projectRoot, sourcePath);
   if (!relProject.startsWith("..")) return relProject;
 
-  const basename = path.basename(sourcePath);
-  const parent = path.basename(path.dirname(sourcePath));
-  return `${parent}/${basename}`;
+  return extracted;
 }
 
 /**

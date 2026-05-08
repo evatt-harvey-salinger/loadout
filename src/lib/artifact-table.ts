@@ -7,6 +7,7 @@
 
 import chalk from "chalk";
 import type { Tool, OutputMode } from "../core/types.js";
+import { extractRelativePath } from "./artifact-paths.js";
 
 // Sort order for artifact kinds in display
 // Prioritizes context-heavy kinds first, then alphabetical for the rest
@@ -221,16 +222,7 @@ export function groupOutputsByArtifact(
     const key = spec.sourcePath;
     
     if (!bySource.has(key)) {
-      // Extract relative path from sourcePath for display name
-      // This is a bit hacky but works for most cases
-      const parts = spec.sourcePath.split("/");
-      let relativePath = spec.sourcePath;
-      
-      // Try to find .loadout or loadout in the path and extract from there
-      const loadoutIdx = parts.findIndex(p => p === ".loadout" || p === "loadout");
-      if (loadoutIdx >= 0) {
-        relativePath = parts.slice(loadoutIdx + 1).join("/");
-      }
+      const relativePath = extractRelativePath(spec.sourcePath);
       
       bySource.set(key, {
         kind: spec.kind,

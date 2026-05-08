@@ -97,8 +97,11 @@ When completing a task:
     ensureDir(path.dirname(filePath));
     writeFile(filePath, content);
     log.success(`Created: instructions/AGENTS.${targetLoadout}.md`);
-    log.info(`Edit with: loadout instructions edit ${targetLoadout}`);
-    log.dim(`Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
+    console.log();
+    console.log(`  File: ${filePath}`);
+    console.log();
+    log.dim("  Replace the template content with your instructions, then run 'loadout sync'");
+    log.dim(`  Don't forget to add 'instructions/AGENTS.${targetLoadout}.md' to your loadout's include list.`);
   });
 
 // loadout instructions edit [loadout]

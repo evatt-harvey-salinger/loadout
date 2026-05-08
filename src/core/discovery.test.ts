@@ -112,7 +112,7 @@ sources:
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(0);
     expect(roots[0]).toEqual(primaryRoot);
@@ -125,7 +125,7 @@ sources:
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(0);
     expect(roots).toHaveLength(3); // project, parent, shared
@@ -159,7 +159,7 @@ sources:
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(0);
     expect(roots).toHaveLength(2); // project, parent (cycle skipped)
@@ -180,7 +180,7 @@ sources:
       depth: 0,
     };
 
-    const { roots, warnings } = collectRootsWithSources(primaryRoot, false);
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("Source not found");
