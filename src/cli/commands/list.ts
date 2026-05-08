@@ -24,6 +24,17 @@ import { loadState } from "../../core/manifest.js";
 import { resolveScopes, SCOPE_FLAGS, type ScopeFlags } from "../../core/scope.js";
 import { fileExists } from "../../lib/fs.js";
 import { log, heading } from "../../lib/output.js";
+import {
+  type ScopeIndicator,
+  rootToScope,
+  renderScopeLegend,
+} from "../../lib/scope-indicators.js";
+import {
+  calculateLoadoutColumnWidths,
+  renderLoadoutHeader,
+  renderLoadoutSeparator,
+  renderLoadoutCellWithDefault,
+} from "../../lib/loadout-column.js";
 import type { LoadoutRoot } from "../../core/types.js";
 import chalk from "chalk";
 
@@ -33,16 +44,8 @@ interface LoadoutInfo {
   isActive: boolean;
   count: number;
   description?: string;
-  source: string;
+  scope: ScopeIndicator;
   error?: boolean;
-}
-
-/**
- * Truncate a path with leading ellipsis if too long.
- */
-function truncateSource(str: string, maxLen: number): string {
-  if (str.length <= maxLen) return str;
-  return "…" + str.slice(-(maxLen - 1));
 }
 
 /**
@@ -70,16 +73,7 @@ function collectLoadoutsFromRoot(
 
   for (const root of roots) {
     const loadoutNames = listLoadouts(root.path);
-
-    // Determine source label
-    let sourceLabel: string;
-    if (root.level === "source") {
-      sourceLabel = root.sourceRef || path.basename(path.dirname(root.path));
-    } else if (root.level === "global") {
-      sourceLabel = "global";
-    } else {
-      sourceLabel = "local";
-    }
+    const scope = rootToScope(root);
 
     for (const name of loadoutNames) {
       // Skip if we've already seen this name (nearest wins)
@@ -100,10 +94,10 @@ function collectLoadoutsFromRoot(
           isActive,
           count: def.include.length,
           description: def.description,
-          source: sourceLabel,
+          scope,
         });
       } catch {
-        infos.push({ name, isDefault, isActive, count: 0, source: sourceLabel, error: true });
+        infos.push({ name, isDefault, isActive, count: 0, scope, error: true });
       }
     }
   }
@@ -123,59 +117,64 @@ function renderTable(infos: LoadoutInfo[], sourceChain: string[]): void {
   // Check if any loadout has a description
   const hasDescriptions = infos.some(i => i.description);
 
-  // Calculate column widths
-  const nameWidth = Math.max(...infos.map(i => i.name.length), "loadout".length);
-  const sourceMaxWidth = 20;
-  const sourceWidth = Math.min(
-    Math.max(...infos.map(i => (i.source || "").length), "source".length),
-    sourceMaxWidth
-  );
+  // Calculate column widths - list has a default marker column
+  const listItems = infos.map(i => ({ loadoutName: i.name, scope: i.scope, isDefault: i.isDefault }));
+  const { nameWidth, scopeWidth, totalWidth: loadoutColWidth } = 
+    calculateLoadoutColumnWidths(listItems, { hasDefaultMarker: true });
+  
   const itemsWidth = 5; // "items" header
 
-  // Render header
-  const nameH = chalk.dim("loadout".padEnd(nameWidth));
-  const sourceH = chalk.dim("source".padEnd(sourceWidth));
+  // ── Header ───────────────────────────────────────────────────────────────
+  const loadoutH = renderLoadoutHeader(loadoutColWidth);
   const itemsH = chalk.dim("items".padStart(itemsWidth));
   const descH = hasDescriptions ? "  " + chalk.dim("description") : "";
   
-  console.log(`    ${nameH}     ${sourceH}  ${itemsH}${descH}`);
+  console.log(`  ${loadoutH}  ${itemsH}${descH}`);
 
-  // Render separator
-  const sep = chalk.dim(
-    `    ${"─".repeat(nameWidth)}     ${"─".repeat(sourceWidth)}  ${"─".repeat(itemsWidth)}` +
-    (hasDescriptions ? `  ${"─".repeat(30)}` : "")
-  );
-  console.log(sep);
+  // ── Separator ─────────────────────────────────────────────────────────────
+  const sep = [
+    renderLoadoutSeparator(loadoutColWidth),
+    "─".repeat(itemsWidth),
+    ...(hasDescriptions ? ["─".repeat(30)] : []),
+  ].join("  ");
+  console.log(chalk.dim(`  ${sep}`));
 
-  // Render rows
+  // ── Rows ──────────────────────────────────────────────────────────────────
   for (const info of infos) {
+    const item = { loadoutName: info.name, scope: info.scope, isDefault: info.isDefault };
+    const loadoutCell = renderLoadoutCellWithDefault(
+      item,
+      info.isActive,
+      nameWidth,
+      scopeWidth,
+      loadoutColWidth
+    );
+
     if (info.error) {
-      const activeMarker = info.isActive ? chalk.green("▸") : " ";
-      const defaultMarker = info.isDefault ? chalk.cyan("*") : " ";
-      console.log(`  ${activeMarker} ${info.name.padEnd(nameWidth)} ${defaultMarker}   ${chalk.red("(error reading definition)")}`);
+      console.log(`  ${loadoutCell}  ${chalk.red("error")}`);
       continue;
     }
-
-    const activeMarker = info.isActive ? chalk.green("▸") : " ";
-    const defaultMarker = info.isDefault ? chalk.cyan("*") : " ";
-    const nameCol = info.name.padEnd(nameWidth);
-    const sourceCol = truncateSource(info.source || "", sourceMaxWidth).padEnd(sourceWidth);
-    const itemsCol = String(info.count).padStart(itemsWidth);
+    
+    const itemsCol = chalk.cyan(String(info.count).padStart(itemsWidth));
     const descCol = hasDescriptions && info.description 
       ? "  " + chalk.dim(info.description) 
       : "";
 
-    console.log(`  ${activeMarker} ${nameCol} ${defaultMarker}   ${chalk.yellow(sourceCol)}  ${chalk.cyan(itemsCol)}${descCol}`);
+    console.log(`  ${loadoutCell}  ${itemsCol}${descCol}`);
   }
 
-  // Footer: show legend and source chain (aligned with table columns)
+  // ── Footer ────────────────────────────────────────────────────────────────
   console.log();
+  
+  // Legend for markers
   const activeLegend = `${chalk.green("▸")} active`;
   const defaultLegend = `${chalk.cyan("*")} default`;
-  // Align: "  ▸ " + padding to where "*" appears (after name column)
-  const legendPadding = nameWidth - "active".length;
-  console.log(chalk.dim(`  ${activeLegend}${" ".repeat(legendPadding)} ${defaultLegend}`));
+  console.log(`  ${activeLegend}  ${defaultLegend}`);
 
+  // Scope legend
+  renderScopeLegend(infos);
+
+  // Source chain (if any external sources)
   if (sourceChain.length > 0) {
     console.log(chalk.dim(`  sources: ${sourceChain.join(" → ")}`));
   }

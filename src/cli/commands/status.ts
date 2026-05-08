@@ -1,6 +1,12 @@
 /**
  * loadout status — Show drift status for active loadouts.
  *
+ * Displays a unified table of all active loadouts with drift status.
+ * Uses the same visual language as `info` and `list`:
+ *   • (dim)    — global scope
+ *   ◦ (cyan)   — local/project scope
+ *   →name (yellow) — external source
+ *
  * Detects two types of drift:
  *   1. Config drift: loadout definition changed (items added/removed)
  *   2. Output drift: managed files changed on disk (modified/missing/unlinked)
@@ -22,15 +28,23 @@ import { resolveContexts, SCOPE_FLAGS, type ScopeFlags } from "../../core/scope.
 import { log, heading } from "../../lib/output.js";
 import {
   getArtifactName,
-  sortArtifacts,
   truncatePath,
   getToolColumns,
-  renderHeader,
-  renderSeparator,
   calculateColumnWidths,
   KIND_SORT_ORDER,
 } from "../../lib/artifact-table.js";
-import type { CommandContext, AppliedState, Tool } from "../../core/types.js";
+import {
+  type ScopeIndicator,
+  getScopeFromRoots,
+  renderScopeLegend,
+} from "../../lib/scope-indicators.js";
+import {
+  calculateLoadoutColumnWidths,
+  renderLoadoutHeader,
+  renderLoadoutSeparator,
+  renderLoadoutCell,
+} from "../../lib/loadout-column.js";
+import type { CommandContext, AppliedState, Tool, LoadoutRoot } from "../../core/types.js";
 import type { RenderPlan } from "../../core/types.js";
 
 type DriftStatus = DriftResult["status"];
@@ -58,20 +72,27 @@ interface ConfigDrift {
   removed: string[]; // targets to be deleted (orphaned)
 }
 
-// Grouped artifact status: one row per artifact with status per tool
+// Artifact with drift status
 interface ArtifactStatus {
-  name: string;           // Display name (e.g., "codebase-layout")
-  relativePath: string;   // Full relative path for reference
+  name: string;
+  relativePath: string;
   kind: string;
-  toolStatus: Map<Tool, DriftStatus>;  // Status per tool
-  overallStatus: DriftStatus;          // Worst status across tools
+  toolStatus: Map<Tool, DriftStatus>;
+  overallStatus: DriftStatus;
 }
 
-interface DriftSummary {
-  config: ConfigDrift;
+// A loadout group with its artifacts and drift info
+interface LoadoutStatusGroup {
+  loadoutName: string;
+  scope: ScopeIndicator;
+  isActive: boolean;
+  appliedAt: string;
+  mode: string;
   artifacts: ArtifactStatus[];
+  tools: Tool[];
+  config: ConfigDrift;
+  shadowed: Array<{ targetPath: string; tools: string[] }>;
   inSync: boolean;
-  tools: Tool[];  // All tools involved
 }
 
 /**
@@ -94,22 +115,14 @@ function detectConfigDrift(plan: RenderPlan, state: AppliedState): ConfigDrift {
 
 /**
  * Convert sourcePath to a display-friendly relative path.
- * Tries configPath first, then projectRoot, then shows basename with parent.
  */
 function getRelativePath(sourcePath: string, configPath: string, projectRoot: string): string {
-  // Try relative to configPath first
   const relConfig = path.relative(configPath, sourcePath);
-  if (!relConfig.startsWith("..")) {
-    return relConfig;
-  }
+  if (!relConfig.startsWith("..")) return relConfig;
 
-  // Try relative to projectRoot
   const relProject = path.relative(projectRoot, sourcePath);
-  if (!relProject.startsWith("..")) {
-    return relProject;
-  }
+  if (!relProject.startsWith("..")) return relProject;
 
-  // Fallback: show parent/basename for context
   const basename = path.basename(sourcePath);
   const parent = path.basename(path.dirname(sourcePath));
   return `${parent}/${basename}`;
@@ -123,7 +136,6 @@ function groupByArtifact(
   configPath: string,
   projectRoot: string
 ): { artifacts: ArtifactStatus[]; tools: Tool[] } {
-  // Collect all tools
   const toolSet = new Set<Tool>();
   for (const result of driftResults) {
     for (const tool of result.entry.tools) {
@@ -132,17 +144,13 @@ function groupByArtifact(
   }
   const tools = Array.from(toolSet).sort();
 
-  // Group by sourcePath
   const bySource = new Map<string, DriftResult[]>();
   for (const result of driftResults) {
     const key = result.entry.sourcePath;
-    if (!bySource.has(key)) {
-      bySource.set(key, []);
-    }
+    if (!bySource.has(key)) bySource.set(key, []);
     bySource.get(key)!.push(result);
   }
 
-  // Build artifact status for each group
   const artifacts: ArtifactStatus[] = [];
   for (const [sourcePath, results] of bySource) {
     const toolStatus = new Map<Tool, DriftStatus>();
@@ -150,7 +158,6 @@ function groupByArtifact(
     let overallStatus: DriftStatus = "ok";
 
     for (const result of results) {
-      // Each entry may serve multiple tools
       for (const tool of result.entry.tools) {
         toolStatus.set(tool, result.status);
       }
@@ -181,150 +188,20 @@ function groupByArtifact(
  */
 function sortByStatusThenKind(artifacts: ArtifactStatus[]): ArtifactStatus[] {
   return [...artifacts].sort((a, b) => {
-    // First: worst status first
     const pa = STATUS_PRIORITY[a.overallStatus];
     const pb = STATUS_PRIORITY[b.overallStatus];
     if (pa !== pb) return pb - pa;
 
-    // Then: by kind priority
     const orderA = KIND_SORT_ORDER[a.kind] ?? 100;
     const orderB = KIND_SORT_ORDER[b.kind] ?? 100;
     if (orderA !== orderB) return orderA - orderB;
 
-    // Finally: alphabetically by name
     return a.name.localeCompare(b.name);
   });
 }
 
 /**
- * Render artifact status table.
- */
-function renderStatusTable(artifacts: ArtifactStatus[], tools: Tool[]): void {
-  if (artifacts.length === 0) {
-    log.dim("  No artifacts.");
-    console.log();
-    return;
-  }
-
-  // Sort: worst status first, then by kind, then by name
-  const sortedArtifacts = sortByStatusThenKind(artifacts);
-
-  // Calculate column widths
-  const { kindWidth, nameWidth } = calculateColumnWidths(sortedArtifacts);
-  const toolCols = getToolColumns(tools);
-  const STATUS_W = 8;  // "status" header + padding
-
-  // ── Header ───────────────────────────────────────────────────────────────
-  const kindH = chalk.dim("kind".padEnd(kindWidth));
-  const nameH = chalk.dim("artifact".padEnd(nameWidth));
-  const toolH = toolCols.map((c) => chalk.dim(c.tool)).join("  ");
-  const statusH = chalk.dim("status");
-  console.log(`  ${kindH}  ${nameH}  ${toolH}  ${statusH}`);
-
-  // ── Separator ─────────────────────────────────────────────────────────────
-  const sep = [
-    "─".repeat(kindWidth),
-    "─".repeat(nameWidth),
-    toolCols.map((c) => "─".repeat(c.width)).join("  "),
-    "─".repeat(STATUS_W),
-  ].join("  ");
-  console.log(chalk.dim(`  ${sep}`));
-
-  // ── Rows ──────────────────────────────────────────────────────────────────
-  for (const artifact of sortedArtifacts) {
-    const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
-    const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
-
-    // Tool status cells
-    const toolCells = toolCols
-      .map((c) => {
-        const status = artifact.toolStatus.get(c.tool);
-        if (!status) {
-          return " ".repeat(c.width);  // Tool not applicable
-        }
-        const { symbol, color } = STATUS_DISPLAY[status];
-        // Emoji takes 2 chars visually, regular symbols take 1
-        const symbolWidth = symbol === "💀" ? 2 : 1;
-        return color(symbol) + " ".repeat(c.width - symbolWidth);
-      })
-      .join("  ");
-
-    // Overall status
-    const { color: overallColor } = STATUS_DISPLAY[artifact.overallStatus];
-    const statusCell = overallColor(artifact.overallStatus);
-
-    console.log(`  ${kindCell}  ${nameCell}  ${toolCells}  ${statusCell}`);
-  }
-
-  console.log();
-}
-
-/**
- * Render config drift (added/removed artifacts).
- */
-function renderConfigDrift(config: ConfigDrift): void {
-  if (config.added.length > 0) {
-    log.info(`${config.added.length} to add:`);
-    for (const p of config.added) log.dim(`  + ${p}`);
-    console.log();
-  }
-
-  if (config.removed.length > 0) {
-    log.warn(`${config.removed.length} to remove:`);
-    for (const p of config.removed) log.dim(`  - ${p}`);
-    console.log();
-  }
-}
-
-/**
- * Detect all drift for a context.
- */
-async function detectAllDrift(
-  ctx: CommandContext,
-  state: AppliedState
-): Promise<DriftSummary> {
-  // Config drift: re-resolve ALL active loadouts and compare merged plan
-  let config: ConfigDrift = { added: [], removed: [] };
-  
-  try {
-    // Merge plans from all active loadouts (same logic as applyMultiPlan)
-    const seenTargets = new Set<string>();
-    const mergedOutputs: RenderPlan["outputs"] = [];
-
-    for (const activeName of state.active) {
-      const { loadout } = await loadResolvedLoadout(ctx, activeName);
-      const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
-      for (const output of plan.outputs) {
-        if (!seenTargets.has(output.spec.targetPath)) {
-          seenTargets.add(output.spec.targetPath);
-          mergedOutputs.push(output);
-        }
-      }
-    }
-
-    const mergedPlan: RenderPlan = { outputs: mergedOutputs, shadowed: [], errors: [] };
-    config = detectConfigDrift(mergedPlan, state);
-  } catch {
-    // Can't resolve loadout — might be deleted or broken
-    // We'll still show output drift
-  }
-
-  // Output drift: check managed files on disk
-  const driftResults = detectDrift(state, ctx.projectRoot);
-  const { artifacts, tools } = groupByArtifact(driftResults, ctx.configPath, ctx.projectRoot);
-
-  // Check if everything is in sync
-  const configInSync = config.added.length === 0 && config.removed.length === 0;
-  const outputInSync = artifacts.every((a) => a.overallStatus === "ok");
-  const inSync = configInSync && outputInSync;
-
-  return { config, artifacts, tools, inSync };
-}
-
-/**
  * Collapse skill reference files into their parent skill.
- * E.g., skills/foo/SKILL.md + skills/foo/references/bar.md → foo
- * Aggregates status: worst status of any file in the skill.
  */
 function collapseSkillReferences(artifacts: ArtifactStatus[]): ArtifactStatus[] {
   const skillGroups = new Map<string, ArtifactStatus[]>();
@@ -336,7 +213,6 @@ function collapseSkillReferences(artifacts: ArtifactStatus[]): ArtifactStatus[] 
       continue;
     }
 
-    // Extract skill name from relativePath: skills/<name>/... → <name>
     const match = artifact.relativePath.match(/^skills\/([^/]+)/);
     if (!match) {
       nonSkills.push(artifact);
@@ -344,16 +220,12 @@ function collapseSkillReferences(artifacts: ArtifactStatus[]): ArtifactStatus[] 
     }
 
     const skillName = match[1];
-    if (!skillGroups.has(skillName)) {
-      skillGroups.set(skillName, []);
-    }
+    if (!skillGroups.has(skillName)) skillGroups.set(skillName, []);
     skillGroups.get(skillName)!.push(artifact);
   }
 
-  // Aggregate each skill group into a single artifact
   const collapsedSkills: ArtifactStatus[] = [];
   for (const [skillName, files] of skillGroups) {
-    // Merge toolStatus: for each tool, take worst status
     const mergedToolStatus = new Map<Tool, DriftStatus>();
     let worstPriority = 0;
     let overallStatus: DriftStatus = "ok";
@@ -385,77 +257,220 @@ function collapseSkillReferences(artifacts: ArtifactStatus[]): ArtifactStatus[] 
 }
 
 /**
- * Render status for a single context. Returns true if state file existed.
+ * Load status group for a single context.
  */
-export async function executeStatus(ctx: CommandContext, showReferences: boolean = false): Promise<boolean> {
+async function loadStatusGroup(
+  ctx: CommandContext,
+  showReferences: boolean
+): Promise<LoadoutStatusGroup | null> {
   const state = loadState(ctx.configPath);
-  if (!state) return false;
+  if (!state || state.active.length === 0) return null;
 
-  const label = ctx.scope === "global" ? "Global" : "Project";
-  const activeList = state.active.join(", ");
-  heading(`${label} loadout: ${activeList}`);
-
-  const drift = await detectAllDrift(ctx, state);
-
-  // Collapse skill references unless --references flag
-  // When showing references, use relativePath as name to distinguish files
-  let displayArtifacts: ArtifactStatus[];
-  if (showReferences) {
-    displayArtifacts = drift.artifacts.map((a) => ({
-      ...a,
-      name: a.relativePath,  // Show full path when expanded
-    }));
-  } else {
-    displayArtifacts = collapseSkillReferences(drift.artifacts);
-  }
-
-  // Show sources if any (from first active loadout's resolution)
+  // Get scope indicator from roots
+  let scope: ScopeIndicator = ctx.scope === "global" ? { type: "global" } : { type: "local" };
+  let roots: LoadoutRoot[] = [];
+  
   try {
-    const { roots } = await loadResolvedLoadout(ctx, state.active[0]);
-    const sources = roots.filter((r) => r.level === "source");
-    if (sources.length > 0) {
-      console.log(`  Sources: ${sources.map((s) => s.sourceRef || s.path).join(", ")}`);
+    const result = await loadResolvedLoadout(ctx, state.active[0]);
+    roots = result.roots;
+    scope = getScopeFromRoots(result.loadout.rootPath, roots, ctx.scope);
+  } catch { /* use default scope */ }
+
+  // Detect config drift
+  let config: ConfigDrift = { added: [], removed: [] };
+  try {
+    const seenTargets = new Set<string>();
+    const mergedOutputs: RenderPlan["outputs"] = [];
+
+    for (const activeName of state.active) {
+      const { loadout } = await loadResolvedLoadout(ctx, activeName);
+      const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
+      for (const output of plan.outputs) {
+        if (!seenTargets.has(output.spec.targetPath)) {
+          seenTargets.add(output.spec.targetPath);
+          mergedOutputs.push(output);
+        }
+      }
     }
+
+    const mergedPlan: RenderPlan = { outputs: mergedOutputs, shadowed: [], errors: [] };
+    config = detectConfigDrift(mergedPlan, state);
   } catch { /* ignore */ }
 
-  console.log(`  Applied: ${new Date(state.appliedAt).toLocaleString()}`);
-  console.log(`  Mode: ${state.mode}`);
-  console.log(`  Artifacts: ${displayArtifacts.length}`);
-  console.log();
+  // Detect output drift
+  const driftResults = detectDrift(state, ctx.projectRoot);
+  const { artifacts, tools } = groupByArtifact(driftResults, ctx.configPath, ctx.projectRoot);
 
-  // Config drift (added/removed) - only show if there's drift
-  renderConfigDrift(drift.config);
-
-  // Always show artifact table
-  renderStatusTable(displayArtifacts, drift.tools);
-
-  // Shadowed files from original apply
-  if (state.shadowed.length > 0) {
-    // Dedupe by targetPath for display (same file can shadow multiple tools)
-    const uniqueTargets = [...new Set(state.shadowed.map(s => s.targetPath))];
-    const toolsByTarget = new Map<string, string[]>();
-    for (const s of state.shadowed) {
-      const tools = toolsByTarget.get(s.targetPath) || [];
-      tools.push(s.tool);
-      toolsByTarget.set(s.targetPath, tools);
-    }
-    
-    log.dim(`${uniqueTargets.length} shadowed (unmanaged files blocking ${state.shadowed.length} outputs):`);
-    for (const target of uniqueTargets) {
-      const tools = toolsByTarget.get(target) || [];
-      log.dim(`  ? ${target} ${chalk.dim(`(${tools.join(", ")})`)}`);    }
-    console.log();
-  }
-
-  // Summary message
-  if (drift.inSync) {
-    log.success("All in sync");
+  // Process artifacts
+  let displayArtifacts: ArtifactStatus[];
+  if (showReferences) {
+    displayArtifacts = artifacts.map((a) => ({ ...a, name: a.relativePath }));
   } else {
-    log.dim("Run 'loadout sync' to reconcile.");
+    displayArtifacts = collapseSkillReferences(artifacts);
+  }
+
+  // Process shadowed files
+  const toolsByTarget = new Map<string, string[]>();
+  for (const s of state.shadowed) {
+    const tools = toolsByTarget.get(s.targetPath) || [];
+    tools.push(s.tool);
+    toolsByTarget.set(s.targetPath, tools);
+  }
+  const shadowed = Array.from(toolsByTarget.entries()).map(([targetPath, tools]) => ({
+    targetPath,
+    tools,
+  }));
+
+  // Check sync status
+  const configInSync = config.added.length === 0 && config.removed.length === 0;
+  const outputInSync = displayArtifacts.every((a) => a.overallStatus === "ok");
+  const inSync = configInSync && outputInSync;
+
+  return {
+    loadoutName: state.active.join(", "),
+    scope,
+    isActive: true, // Status only shows active loadouts
+    appliedAt: state.appliedAt,
+    mode: state.mode,
+    artifacts: displayArtifacts,
+    tools,
+    config,
+    shadowed,
+    inSync,
+  };
+}
+
+/**
+ * Render the unified status table.
+ */
+function renderUnifiedStatusTable(groups: LoadoutStatusGroup[]): void {
+  if (groups.length === 0) {
+    log.dim("  No artifacts.");
+    console.log();
+    return;
+  }
+
+  // Flatten all artifacts for column width calculation
+  const allArtifacts: Array<ArtifactStatus & { loadoutName: string }> = [];
+  for (const group of groups) {
+    for (const artifact of group.artifacts) {
+      allArtifacts.push({ ...artifact, loadoutName: group.loadoutName });
+    }
+  }
+
+  if (allArtifacts.length === 0) {
+    log.dim("  No artifacts.");
+    console.log();
+    return;
+  }
+
+  // Collect all tools across all groups
+  const allToolsSet = new Set<Tool>();
+  for (const group of groups) {
+    for (const tool of group.tools) {
+      allToolsSet.add(tool);
+    }
+  }
+  const allTools = Array.from(allToolsSet).sort();
+
+  // Calculate column widths
+  const { nameWidth: loadoutNameWidth, scopeWidth, totalWidth: loadoutColWidth } = 
+    calculateLoadoutColumnWidths(groups);
+
+  const { kindWidth, nameWidth } = calculateColumnWidths(allArtifacts);
+  const toolCols = getToolColumns(allTools);
+  const STATUS_W = 8;
+
+  // ── Header ───────────────────────────────────────────────────────────────
+  const loadoutH = renderLoadoutHeader(loadoutColWidth);
+  const kindH = chalk.dim("kind".padEnd(kindWidth));
+  const nameH = chalk.dim("artifact".padEnd(nameWidth));
+  const toolH = toolCols.map((c) => chalk.dim(c.tool)).join("  ");
+  const statusH = chalk.dim("status");
+  console.log(`  ${loadoutH}  ${kindH}  ${nameH}  ${toolH}  ${statusH}`);
+
+  // ── Separator ─────────────────────────────────────────────────────────────
+  const sepParts = [
+    renderLoadoutSeparator(loadoutColWidth),
+    "─".repeat(kindWidth),
+    "─".repeat(nameWidth),
+    toolCols.map((c) => "─".repeat(c.width)).join("  "),
+    "─".repeat(STATUS_W),
+  ];
+  console.log(chalk.dim(`  ${sepParts.join("  ")}`));
+
+  // ── Rows (grouped by loadout) ─────────────────────────────────────────────
+  for (const group of groups) {
+    const sortedArtifacts = sortByStatusThenKind(group.artifacts);
+
+    for (let i = 0; i < sortedArtifacts.length; i++) {
+      const artifact = sortedArtifacts[i];
+      const isFirstInGroup = i === 0;
+
+      // Loadout cell (only show on first row of group)
+      const loadoutCell = renderLoadoutCell(
+        isFirstInGroup ? group : null,
+        loadoutNameWidth,
+        scopeWidth,
+        loadoutColWidth
+      );
+
+      const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
+      const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
+
+      // Tool status cells
+      // Tool cells - right-justified within each column
+      const toolCells = toolCols
+        .map((c) => {
+          const status = artifact.toolStatus.get(c.tool);
+          if (!status) return " ".repeat(c.width);
+          const { symbol, color } = STATUS_DISPLAY[status];
+          const symbolWidth = symbol === "💀" ? 2 : 1;
+          return " ".repeat(c.width - symbolWidth) + color(symbol);
+        })
+        .join("  ");
+
+      // Overall status
+      const { color: overallColor } = STATUS_DISPLAY[artifact.overallStatus];
+      const statusCell = overallColor(artifact.overallStatus);
+
+      console.log(`  ${loadoutCell}  ${kindCell}  ${nameCell}  ${toolCells}  ${statusCell}`);
+    }
+  }
+
+  console.log();
+}
+
+/**
+ * Render config drift summary.
+ */
+function renderConfigDriftSummary(groups: LoadoutStatusGroup[]): void {
+  const totalAdded = groups.reduce((sum, g) => sum + g.config.added.length, 0);
+  const totalRemoved = groups.reduce((sum, g) => sum + g.config.removed.length, 0);
+
+  if (totalAdded > 0) {
+    log.info(`${totalAdded} to add`);
+  }
+  if (totalRemoved > 0) {
+    log.warn(`${totalRemoved} to remove`);
+  }
+}
+
+/**
+ * Render shadowed files summary.
+ */
+function renderShadowedSummary(groups: LoadoutStatusGroup[]): void {
+  const allShadowed = groups.flatMap((g) => g.shadowed);
+  if (allShadowed.length === 0) return;
+
+  log.dim(`${allShadowed.length} shadowed (unmanaged files blocking outputs):`);
+  for (const { targetPath, tools } of allShadowed.slice(0, 5)) {
+    log.dim(`  ? ${targetPath} ${chalk.dim(`(${tools.join(", ")})`)}`);
+  }
+  if (allShadowed.length > 5) {
+    log.dim(`  ... and ${allShadowed.length - 5} more`);
   }
   console.log();
-
-  return true;
 }
 
 /**
@@ -473,6 +488,53 @@ function checkUnsanitizedRules(ctx: CommandContext): void {
   console.log();
 }
 
+/**
+ * Execute status command - unified view of all active loadouts.
+ */
+export async function executeStatus(
+  contexts: CommandContext[],
+  showReferences: boolean
+): Promise<boolean> {
+  const groups: LoadoutStatusGroup[] = [];
+
+  for (const ctx of contexts) {
+    // Check for unsanitized rules first
+    checkUnsanitizedRules(ctx);
+
+    const group = await loadStatusGroup(ctx, showReferences);
+    if (group) groups.push(group);
+  }
+
+  if (groups.length === 0) {
+    return false;
+  }
+
+  heading("Loadout status");
+
+  // Config drift summary (only if there's drift)
+  renderConfigDriftSummary(groups);
+
+  // Unified table
+  renderUnifiedStatusTable(groups);
+
+  // Shadowed files
+  renderShadowedSummary(groups);
+
+  // Scope legend
+  renderScopeLegend(groups);
+
+  // Overall sync status
+  const allInSync = groups.every((g) => g.inSync);
+  console.log();
+  if (allInSync) {
+    log.success("All in sync");
+  } else {
+    log.dim("Run 'loadout sync' to reconcile.");
+  }
+
+  return true;
+}
+
 interface StatusOptions extends ScopeFlags {
   references?: boolean;
 }
@@ -485,14 +547,7 @@ export const statusCommand = new Command("status")
   .option("-r, --references", "Show individual skill reference files")
   .action(async (options: StatusOptions) => {
     const { contexts } = await resolveContexts(options);
-
-    let hasAny = false;
-    for (const ctx of contexts) {
-      // Check for unsanitized rules
-      checkUnsanitizedRules(ctx);
-      
-      hasAny = (await executeStatus(ctx, options.references ?? false)) || hasAny;
-    }
+    const hasAny = await executeStatus(contexts, options.references ?? false);
 
     if (!hasAny) {
       log.warn("No loadout applied.");

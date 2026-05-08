@@ -1,6 +1,12 @@
 /**
  * loadout info — Show detailed loadout information.
  *
+ * Displays a unified table of all active loadouts with artifacts grouped by
+ * loadout name. Scope is indicated subtly with symbols:
+ *   • global (dim)
+ *   ◦ local (cyan)
+ *   →name source (yellow)
+ *
  * Scope flags:
  *   -l / --local   → project scope only
  *   -g / --global  → global scope only
@@ -19,7 +25,7 @@ import {
 import { getContext } from "../../core/discovery.js";
 import { loadResolvedLoadout } from "../../core/resolve.js";
 import { loadState } from "../../core/manifest.js";
-import { log, heading, keyValue } from "../../lib/output.js";
+import { log, heading } from "../../lib/output.js";
 import {
   getArtifactName,
   sortArtifacts,
@@ -27,7 +33,18 @@ import {
   getToolColumns,
   calculateColumnWidths,
 } from "../../lib/artifact-table.js";
-import type { CommandContext, ResolvedItem, Tool } from "../../core/types.js";
+import {
+  type ScopeIndicator,
+  getScopeFromRoots,
+  renderScopeLegend,
+} from "../../lib/scope-indicators.js";
+import {
+  calculateLoadoutColumnWidths,
+  renderLoadoutHeader,
+  renderLoadoutSeparator,
+  renderLoadoutCell,
+} from "../../lib/loadout-column.js";
+import type { CommandContext, ResolvedItem, Tool, LoadoutRoot } from "../../core/types.js";
 import { registry } from "../../core/registry.js";
 import {
   estimateFileTokens,
@@ -85,6 +102,19 @@ interface ArtifactInfo {
 }
 
 /**
+ * A loadout group with its artifacts and scope indicator.
+ */
+interface LoadoutGroup {
+  loadoutName: string;
+  scope: ScopeIndicator;
+  isActive: boolean;
+  description?: string;
+  rootPath: string;
+  artifacts: ArtifactInfo[];
+  tools: Tool[];
+}
+
+/**
  * Transform resolved items into artifact info for display.
  */
 function toArtifactInfo(items: ResolvedItem[]): ArtifactInfo[] {
@@ -97,20 +127,43 @@ function toArtifactInfo(items: ResolvedItem[]): ArtifactInfo[] {
   }));
 }
 
-function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
-  if (items.length === 0) {
+/**
+ * Render the unified artifact table with loadout grouping.
+ */
+function renderUnifiedTable(groups: LoadoutGroup[]): void {
+  if (groups.length === 0) {
     log.dim("  No artifacts.");
     console.log();
     return;
   }
 
-  // Transform and sort items
-  const artifacts = sortArtifacts(toArtifactInfo(items));
+  // Flatten all artifacts for column width calculation
+  const allArtifacts: Array<ArtifactInfo & { loadoutName: string }> = [];
+  for (const group of groups) {
+    for (const artifact of group.artifacts) {
+      allArtifacts.push({ ...artifact, loadoutName: group.loadoutName });
+    }
+  }
+
+  if (allArtifacts.length === 0) {
+    log.dim("  No artifacts.");
+    console.log();
+    return;
+  }
+
+  // Collect all tools across all groups
+  const allToolsSet = new Set<Tool>();
+  for (const group of groups) {
+    for (const tool of group.tools) {
+      allToolsSet.add(tool);
+    }
+  }
+  const allTools = Array.from(allToolsSet).sort();
 
   // Pre-compute token totals
   let totalUpfront = 0;
   let totalLazy = 0;
-  for (const artifact of artifacts) {
+  for (const artifact of allArtifacts) {
     totalUpfront += artifact.tokens.upfront;
     totalLazy += artifact.tokens.lazy;
   }
@@ -120,23 +173,28 @@ function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
   const hasLazy = totalLazy > 0;
 
   // Calculate column widths
-  const { kindWidth, nameWidth } = calculateColumnWidths(artifacts);
-  const toolCols = getToolColumns(tools);
+  const { nameWidth: loadoutNameWidth, scopeWidth, totalWidth: loadoutColWidth } = 
+    calculateLoadoutColumnWidths(groups);
+  
+  const { kindWidth, nameWidth } = calculateColumnWidths(allArtifacts);
+  const toolCols = getToolColumns(allTools);
 
   // Token column widths (right-aligned numbers)
   const TOKEN_W = hasTokens ? 7 : 0;
   const LAZY_W = hasLazy ? 7 : 0;
 
   // ── Header ───────────────────────────────────────────────────────────────
+  const loadoutH = renderLoadoutHeader(loadoutColWidth);
   const kindH = chalk.dim("kind".padEnd(kindWidth));
   const nameH = chalk.dim("artifact".padEnd(nameWidth));
   const upfrontH = hasTokens ? chalk.dim("upfront".padStart(TOKEN_W)) + "  " : "";
   const lazyH = hasLazy ? chalk.dim("lazy".padStart(LAZY_W)) + "  " : "";
   const toolH = toolCols.map((c) => chalk.dim(c.tool)).join("  ");
-  console.log(`  ${kindH}  ${nameH}  ${upfrontH}${lazyH}${toolH}`);
+  console.log(`  ${loadoutH}  ${kindH}  ${nameH}  ${upfrontH}${lazyH}${toolH}`);
 
   // ── Separator ─────────────────────────────────────────────────────────────
   const sepParts = [
+    renderLoadoutSeparator(loadoutColWidth),
     "─".repeat(kindWidth),
     "─".repeat(nameWidth),
     ...(hasTokens ? ["─".repeat(TOKEN_W)] : []),
@@ -145,53 +203,70 @@ function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
   ];
   console.log(chalk.dim(`  ${sepParts.join("  ")}`));
 
-  // ── Rows ──────────────────────────────────────────────────────────────────
-  for (const artifact of artifacts) {
-    const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
-    const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
+  // ── Rows (grouped by loadout) ─────────────────────────────────────────────
+  for (const group of groups) {
+    const sortedArtifacts = sortArtifacts(group.artifacts);
 
-    // Token cells (upfront and lazy)
-    let upfrontCell = "";
-    let lazyCell = "";
-    if (hasTokens) {
-      if (artifact.tokens.upfront > 0) {
-        const formatted = artifact.tokens.upfront >= 1000
-          ? `${(artifact.tokens.upfront / 1000).toFixed(1)}k`
-          : String(artifact.tokens.upfront);
-        upfrontCell = chalk.cyan(formatted.padStart(TOKEN_W)) + "  ";
-      } else {
-        upfrontCell = chalk.dim("—".padStart(TOKEN_W)) + "  ";
-      }
-    }
-    if (hasLazy) {
-      if (artifact.tokens.lazy > 0) {
-        const formatted = artifact.tokens.lazy >= 1000
-          ? `${(artifact.tokens.lazy / 1000).toFixed(1)}k`
-          : String(artifact.tokens.lazy);
-        lazyCell = chalk.yellow(formatted.padStart(LAZY_W)) + "  ";
-      } else {
-        lazyCell = chalk.dim("—".padStart(LAZY_W)) + "  ";
-      }
-    }
+    for (let i = 0; i < sortedArtifacts.length; i++) {
+      const artifact = sortedArtifacts[i];
+      const isFirstInGroup = i === 0;
 
-    // One cell per tool — colored ✓ + plain padding so ANSI codes don't break alignment
-    // Only show ✓ if the tool actually supports this kind (has a mapping)
-    const toolCells = toolCols
-      .map((c) => {
-        const hasMapping = registry.resolveMapping(c.tool, artifact.kind);
-        if (artifact.tools.includes(c.tool) && hasMapping) {
-          return chalk.green("✓") + " ".repeat(c.width - 1);
+      // Loadout cell (only show on first row of group)
+      const loadoutCell = renderLoadoutCell(
+        isFirstInGroup ? group : null,
+        loadoutNameWidth,
+        scopeWidth,
+        loadoutColWidth
+      );
+
+      const kindCell = chalk.dim(artifact.kind.padEnd(kindWidth));
+      const nameCell = truncatePath(artifact.name, nameWidth).padEnd(nameWidth);
+
+      // Token cells (upfront and lazy)
+      let upfrontCell = "";
+      let lazyCell = "";
+      if (hasTokens) {
+        if (artifact.tokens.upfront > 0) {
+          const formatted = artifact.tokens.upfront >= 1000
+            ? `${(artifact.tokens.upfront / 1000).toFixed(1)}k`
+            : String(artifact.tokens.upfront);
+          upfrontCell = chalk.cyan(formatted.padStart(TOKEN_W)) + "  ";
+        } else {
+          upfrontCell = chalk.dim("—".padStart(TOKEN_W)) + "  ";
         }
-        return " ".repeat(c.width);
-      })
-      .join("  ");
+      }
+      if (hasLazy) {
+        if (artifact.tokens.lazy > 0) {
+          const formatted = artifact.tokens.lazy >= 1000
+            ? `${(artifact.tokens.lazy / 1000).toFixed(1)}k`
+            : String(artifact.tokens.lazy);
+          lazyCell = chalk.yellow(formatted.padStart(LAZY_W)) + "  ";
+        } else {
+          lazyCell = chalk.dim("—".padStart(LAZY_W)) + "  ";
+        }
+      }
 
-    console.log(`  ${kindCell}  ${nameCell}  ${upfrontCell}${lazyCell}${toolCells}`);
+      // Tool cells
+      // Tool cells - right-justified within each column
+      const toolCells = toolCols
+        .map((c) => {
+          const hasMapping = registry.resolveMapping(c.tool, artifact.kind);
+          if (artifact.tools.includes(c.tool) && hasMapping) {
+            return " ".repeat(c.width - 1) + chalk.green("✓");
+          }
+          return " ".repeat(c.width);
+        })
+        .join("  ");
+
+      console.log(`  ${loadoutCell}  ${kindCell}  ${nameCell}  ${upfrontCell}${lazyCell}${toolCells}`);
+    }
   }
 
-  // ── Footer with totals ────────────────────────────────────────────────────
+  // ── Footer ────────────────────────────────────────────────────────────────
+  console.log();
+
+  // Token summary
   if (hasTokens) {
-    console.log();
     if (hasLazy) {
       log.dim(`  Upfront: ${formatTokens(totalUpfront)} • Lazy: ${formatTokens(totalLazy)} • Total: ${formatTokens(totalUpfront + totalLazy)}`);
     } else {
@@ -199,69 +274,106 @@ function renderArtifactTable(items: ResolvedItem[], tools: Tool[]): void {
     }
   }
 
+  // Scope legend
+  renderScopeLegend(groups);
+
   console.log();
 }
 
 /**
- * Render info for a single named loadout within a scope.
- * Throws if the loadout cannot be loaded; callers decide how to handle.
+ * Load a single loadout and create a LoadoutGroup.
  */
-async function renderInfoForName(
+async function loadLoadoutGroup(
   ctx: CommandContext,
-  name: string
-): Promise<void> {
-  const result = await loadResolvedLoadout(ctx, name);
+  name: string,
+  isActive: boolean
+): Promise<LoadoutGroup> {
+  const { loadout, roots } = await loadResolvedLoadout(ctx, name);
+  const scope = getScopeFromRoots(loadout.rootPath, roots, ctx.scope);
 
-  const { loadout, loadoutName, roots } = result;
-  const scopeLabel = ctx.scope === "global" ? "Global" : "Project";
-
-  heading(`${scopeLabel} loadout: ${loadoutName}`);
-
-  const meta: Record<string, string | undefined> = {};
-  if (loadout.description) meta["Description"] = loadout.description;
-  meta["Root"] = loadout.rootPath;
-
-  // Show sources if any
-  const sources = roots.filter((r) => r.level === "source");
-  if (sources.length > 0) {
-    meta["Sources"] = sources.map((s) => s.sourceRef || s.path).join(", ");
-  }
-
-  keyValue(meta);
-  console.log();
-
-  renderArtifactTable(loadout.items, loadout.tools);
+  return {
+    loadoutName: name,
+    scope,
+    isActive,
+    description: loadout.description,
+    rootPath: loadout.rootPath,
+    artifacts: toArtifactInfo(loadout.items),
+    tools: loadout.tools,
+  };
 }
 
 /**
- * Render info for a scope. When no name is given, uses active loadouts from
- * state (mirrors `status`). Returns true if state existed and was shown.
+ * Collect all active loadouts from a context.
+ * Returns empty array if no state or no active loadouts.
  */
-export async function executeInfo(
-  ctx: CommandContext,
-  name?: string
-): Promise<boolean> {
-  if (name) {
-    // Explicit name requested — show it regardless of active state
-    await renderInfoForName(ctx, name);
-    return true;
-  }
-
-  // No name given — only show what's actually active
+async function collectActiveGroups(ctx: CommandContext): Promise<LoadoutGroup[]> {
   const state = loadState(ctx.configPath);
   if (!state || state.active.length === 0) {
+    return [];
+  }
+
+  const groups: LoadoutGroup[] = [];
+  for (const activeName of state.active) {
+    try {
+      const group = await loadLoadoutGroup(ctx, activeName, true);
+      groups.push(group);
+    } catch {
+      // Skip loadouts that can't be loaded (deleted, broken, etc.)
+    }
+  }
+  return groups;
+}
+
+/**
+ * Check if a loadout is active in a context.
+ */
+function isLoadoutActive(ctx: CommandContext, name: string): boolean {
+  const state = loadState(ctx.configPath);
+  return state?.active.includes(name) ?? false;
+}
+
+/**
+ * Execute info command - unified view of all active loadouts.
+ */
+export async function executeInfo(
+  contexts: CommandContext[],
+  explicitName?: string
+): Promise<boolean> {
+  const groups: LoadoutGroup[] = [];
+
+  if (explicitName) {
+    // Explicit name: show that loadout from whichever context has it
+    for (const ctx of contexts) {
+      try {
+        const isActive = isLoadoutActive(ctx, explicitName);
+        const group = await loadLoadoutGroup(ctx, explicitName, isActive);
+        groups.push(group);
+      } catch {
+        // Loadout doesn't exist in this context, skip
+      }
+    }
+  } else {
+    // No name: show all active loadouts from all contexts
+    for (const ctx of contexts) {
+      const contextGroups = await collectActiveGroups(ctx);
+      groups.push(...contextGroups);
+    }
+  }
+
+  if (groups.length === 0) {
     return false;
   }
 
-  for (const activeName of state.active) {
-    await renderInfoForName(ctx, activeName);
-  }
+  // Choose heading based on whether we're showing a specific loadout or active ones
+  const title = explicitName ? `Loadout: ${explicitName}` : "Active loadouts";
+  heading(title);
+  renderUnifiedTable(groups);
   return true;
 }
 
 export const infoCommand = new Command("info")
   .description("Show loadout information")
-  .argument("[name]", "Loadout name (uses default if not specified)")
+  .argument("[name]", "Loadout name (uses active loadouts if not specified)")
   .option(...SCOPE_FLAGS.local)
   .option(...SCOPE_FLAGS.global)
   .option(...SCOPE_FLAGS.all)
@@ -273,7 +385,11 @@ export const infoCommand = new Command("info")
       try {
         const scope = await requireScopeForName(name, options, cwd);
         const ctx = await getContext(scope, cwd);
-        await executeInfo(ctx, name);
+        const hasAny = await executeInfo([ctx], name);
+        if (!hasAny) {
+          log.error(`Loadout not found: ${name}`);
+          process.exit(1);
+        }
         return;
       } catch (err) {
         // If it's a collision error, rethrow
@@ -288,23 +404,14 @@ export const infoCommand = new Command("info")
 
     // Show info for all resolved scopes
     const { contexts } = await resolveContexts(options, cwd);
-    let hasAny = false;
-
-    for (const ctx of contexts) {
-      try {
-        hasAny = (await executeInfo(ctx, name)) || hasAny;
-      } catch (err) {
-        // Only skip when the loadout genuinely doesn't exist in this scope.
-        // Re-surface unexpected errors so they aren't hidden.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes("not found") && !msg.includes("No .loadout") && !msg.includes("No global")) {
-          log.error(msg);
-        }
-      }
-    }
+    const hasAny = await executeInfo(contexts, name);
 
     if (!hasAny) {
-      log.warn("No loadout applied.");
-      log.dim("Run 'loadout info <name>' to inspect a loadout without activating.");
+      if (name) {
+        log.error(`Loadout not found: ${name}`);
+      } else {
+        log.warn("No loadout applied.");
+        log.dim("Run 'loadout info <name>' to inspect a loadout without activating.");
+      }
     }
   });
