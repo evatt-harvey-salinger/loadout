@@ -218,6 +218,73 @@ Add your project-specific guidelines here.
   }
 }
 
+/**
+ * Minimal project initialization for use by install command.
+ * Creates the directory structure without prompts or auto-apply.
+ * Returns the path to the created .loadout/ directory.
+ */
+export async function initProjectLoadout(projectRoot: string): Promise<string> {
+  const loadoutPath = path.join(projectRoot, ".loadout");
+
+  // Create directory structure
+  ensureDir(path.join(loadoutPath, "instructions"));
+  ensureDir(path.join(loadoutPath, "rules"));
+  ensureDir(path.join(loadoutPath, "skills"));
+  ensureDir(path.join(loadoutPath, "loadouts"));
+
+  // Create root config
+  const rootConfig: RootConfig = {
+    version: "1",
+  };
+  writeFile(
+    path.join(loadoutPath, "loadout.yaml"),
+    yaml.stringify(rootConfig)
+  );
+
+  // Create base loadout (empty - install will populate it)
+  const defaultLoadout = {
+    name: "base",
+    description: "Base project loadout",
+    include: [] as string[],
+  };
+  writeFile(
+    path.join(loadoutPath, "loadouts", "base.yaml"),
+    yaml.stringify(defaultLoadout)
+  );
+
+  // Create fallback script
+  writeFallbackScript(loadoutPath);
+
+  // Create git hooks only if we're at git root
+  const gitRoot = await findGitRoot(projectRoot);
+  const isAtGitRoot = gitRoot === projectRoot;
+  if (isAtGitRoot) {
+    writeGitHooks(loadoutPath);
+  }
+
+  // Update .envrc
+  const envrcPath = path.join(projectRoot, ".envrc");
+  if (fileExists(envrcPath)) {
+    const existingContent = await import("node:fs").then(fs => fs.readFileSync(envrcPath, "utf-8"));
+    if (!existingContent.includes("sync-fallback.sh")) {
+      writeFile(envrcPath, existingContent + ENVRC_LINES);
+    }
+  } else {
+    writeFile(envrcPath, ENVRC_LINES.trim() + "\n");
+  }
+
+  heading("Initialized .loadout/");
+  log.success("Created .loadout/loadout.yaml");
+  log.success("Created .loadout/loadouts/base.yaml");
+  if (isAtGitRoot) {
+    log.success("Created .loadout/hooks/ (git hooks)");
+  }
+  log.success("Updated .envrc (direnv integration)");
+  console.log();
+
+  return loadoutPath;
+}
+
 export const initCommand = new Command("init")
   .description("Initialize a loadout")
   .option("-l, --local", "Initialize in current directory (default)")

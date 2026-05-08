@@ -150,6 +150,8 @@ function discoverRules(
 
 /**
  * Discover skills in a tool directory.
+ * Skips symlinked directories that point to other tool directories
+ * to avoid duplicate detection.
  */
 function discoverSkills(
   projectRoot: string,
@@ -160,6 +162,25 @@ function discoverSkills(
 
   const skillsDir = path.join(projectRoot, locations.skills.dir);
   if (!isDirectory(skillsDir)) return [];
+
+  // Skip if this skills dir is a symlink pointing to another tool's directory
+  // (e.g., .cursor/skills -> ../.claude/skills)
+  if (isSymlink(skillsDir)) {
+    try {
+      const target = fs.realpathSync(skillsDir);
+      // Check if target is inside another tool's directory
+      for (const [otherTool, otherLoc] of Object.entries(TOOL_LOCATIONS)) {
+        if (otherTool === tool || !otherLoc.skills) continue;
+        const otherSkillsDir = path.join(projectRoot, otherLoc.skills.dir);
+        if (target.startsWith(fs.realpathSync(path.dirname(otherSkillsDir)))) {
+          // This is a symlink to another tool's skills - skip to avoid duplicates
+          return [];
+        }
+      }
+    } catch {
+      // If we can't resolve the symlink, proceed normally
+    }
+  }
 
   const artifacts: DiscoveredArtifact[] = [];
   const entries = listFiles(skillsDir);

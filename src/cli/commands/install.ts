@@ -34,6 +34,7 @@ import {
 import { parseLoadoutDefinition, sanitizeRuleFile } from "../../core/config.js";
 import { loadState } from "../../core/manifest.js";
 import { log, heading } from "../../lib/output.js";
+import { initProjectLoadout } from "./init.js";
 
 
 // ---------------------------------------------------------------------------
@@ -685,20 +686,64 @@ export const installCommand = new Command("install")
   .action(async (options: InstallOptions) => {
     const cwd = process.cwd();
 
-    // Find .loadout/ directory
+    // Find .loadout/ directory, preferring project-level
     const loadoutRoot = await findNearestLoadoutRoot(cwd);
-    if (!loadoutRoot) {
-      log.error("No .loadout/ directory found. Run 'loadout init' first.");
-      process.exit(1);
+    
+    // Check if we have a project-level loadout or only global
+    const hasProjectLoadout = loadoutRoot && loadoutRoot.level === "project";
+    
+    let projectRoot: string;
+    let loadoutPath: string;
+    
+    if (!hasProjectLoadout) {
+      // No project-level .loadout/ — offer to initialize
+      console.log();
+      log.warn("No project .loadout/ found.");
+      
+      // Auto-init with --yes, otherwise prompt
+      if (!options.yes) {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        
+        const answer = await new Promise<string>((resolve) => {
+          rl.question("Initialize one now? [Y/n] ", (ans) => {
+            resolve(ans.trim().toLowerCase());
+            rl.close();
+          });
+        });
+        
+        if (answer === "n" || answer === "no") {
+          log.dim("Run 'loadout init' to set up a project loadout.");
+          process.exit(0);
+        }
+      } else {
+        log.info("Auto-initializing project loadout...");
+      }
+      
+      // Initialize a minimal project loadout
+      console.log();
+      if (options.dryRun) {
+        log.info("Would initialize .loadout/ (dry-run)");
+        // For dry-run, we still need to scan from the project root
+        // but we don't create the loadout directory
+        projectRoot = cwd;
+        loadoutPath = path.join(cwd, ".loadout");
+      } else {
+        loadoutPath = await initProjectLoadout(cwd);
+        projectRoot = cwd;
+      }
+    } else {
+      loadoutPath = loadoutRoot.path;
+      projectRoot = path.dirname(loadoutRoot.path);
     }
-
-    const projectRoot = path.dirname(loadoutRoot.path);
 
     console.log();
     log.info("Scanning for existing configurations...");
 
     try {
-      const result = await runInstall(projectRoot, loadoutRoot.path, options);
+      const result = await runInstall(projectRoot, loadoutPath, options);
 
       if (result.failed > 0) {
         process.exit(1);

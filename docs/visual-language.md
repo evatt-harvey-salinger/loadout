@@ -53,6 +53,10 @@ Use these symbols consistently across all commands:
 | `!`    | red    | missing, error             | status               |
 | `?`    | yellow | shadowed (blocked)         | status, activate     |
 | `—`    | dim    | not applicable             | info, status         |
+| `▸`    | green  | active loadout             | list, info           |
+| `•`    | dim    | global scope               | info                 |
+| `◦`    | cyan   | local/project scope        | info                 |
+| `→`    | yellow | external source            | info                 |
 
 ### In Table Cells
 - Symbols are left-aligned in their column
@@ -62,26 +66,54 @@ Use these symbols consistently across all commands:
 ## Command-Specific Formats
 
 ### `info` — Show loadout information
-```
-  kind         artifact         upfront     lazy  claude-code  cursor  ...
-  ───────────  ───────────────  ───────  ───────  ───────────  ──────  ...
-  instruction  AGENTS               968        —  ✓            ✓       ...
-  skill        managing-memory       94     1.4k  ✓            ✓       ...
 
-  Upfront: 1.1k tokens • Lazy: 1.4k tokens • Total: 2.5k tokens
+Displays a unified table of all active loadouts with artifacts grouped by loadout.
+Scope is indicated with subtle symbols after the loadout name.
+
+```
+Active loadouts
+───────────────
+  loadout    kind         artifact         upfront     lazy  claude-code  cursor  ...
+  ─────────  ───────────  ───────────────  ───────  ───────  ───────────  ──────  ...
+  ▸ base •   instruction  AGENTS.base.md       968        —  ✓            ✓       ...
+             skill        managing-memory       94     1.4k  ✓            ✓       ...
+             extension    tmux-fork.ts           —        —                       ...
+  ▸ base ◦   instruction  AGENTS.base.md       641        —  ✓            ✓       ...
+
+  Upfront: 1.7k • Lazy: 1.4k • Total: 3.1k tokens
+  • global  ◦ local  →name source
 ```
 
+Scope indicators:
+- `•` (dim) — global scope
+- `◦` (cyan) — local/project scope  
+- `→name` (yellow) — external source (shows source name)
+
+The `▸` marker (green) indicates active loadouts.
+Loadout name only appears on the first row of each group.
 Token columns appear when any artifact has context tokens.
 
 ### `status` — Show drift status
+
+Unified table matching `info`, with an additional status column showing drift.
+
 ```
-  kind         artifact         claude-code  cursor  ...  status
-  ───────────  ───────────────  ───────────  ──────  ...  ────────
-  instruction  AGENTS           ✓            ✓       ...  ok
-  skill        managing-memory  ~            ~       ...  modified
+Loadout status
+──────────────
+  loadout    kind         artifact         claude-code  cursor  ...  status
+  ─────────  ───────────  ───────────────  ───────────  ──────  ...  ────────
+  ▸ base ◦   instruction  AGENTS.base.md   ✓            ✓       ...  ok
+  ▸ base •   instruction  AGENTS.base.md   ✓            ✓       ...  ok
+             skill        managing-memory  ✓            ✓       ...  ok
+             extension    tmux-fork.ts                          ...  ok
+
+  • global  ◦ local
+
+✓ All in sync
 ```
 
-Status column shows the worst status across all tools for that artifact.
+Status column shows the worst drift status across all tools for that artifact.
+Drift indicators: `✓` ok, `~` modified, `⚡` unlinked, `!` missing, `💀` broken.
 
 ### `activate` / `sync` / `deactivate` — Apply changes
 ```
@@ -121,18 +153,26 @@ Diff: base (global)
 ```
 
 ### `list` — List available loadouts
-```
-    loadout        source  items  description
-    ──────────     ──────  ─────  ──────────────────────────────
-  ▸ base           global      3  Global base configuration
-    extended       global      5  Extended tooling
 
-  ▸ active     * default
+Shows all available loadouts with scope indicators matching `info`.
+
+```
+Available loadouts
+──────────────────
+  loadout           items  description
+  ────────────────  ─────  ──────────────────────────────
+  ▸ base       * ◦      1  Base loadout configuration
+  ▸ base         •      3  Global base configuration
+    meta         •     11  Meta loadout configuration
+
+  ▸ active  * default
+  • global  ◦ local  →name source
 ```
 
-Special markers:
+Loadout column format: `▸ name * scope` where:
 - `▸` (green) — active loadout
-- `*` (cyan) — default loadout
+- `*` (cyan) — default loadout (project scope only)
+- Scope indicators match `info` (• global, ◦ local, →name source)
 
 ## Headings and Separators
 
