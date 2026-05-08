@@ -527,7 +527,7 @@ function checkUnsanitizedRules(ctx: CommandContext): void {
   for (const name of unsanitized) {
     log.dim(`  ${name}`);
   }
-  log.dim("Run 'loadout sanitize' to fix.");
+  log.dim("Run 'loadouts sanitize' to fix.");
   console.log();
 }
 
@@ -572,7 +572,7 @@ export async function executeStatus(
   if (allInSync) {
     log.success("All in sync");
   } else {
-    log.dim("Run 'loadout sync' to reconcile.");
+    log.dim("Run 'loadouts sync' to reconcile.");
   }
 
   return true;
@@ -594,6 +594,6 @@ export const statusCommand = new Command("status")
 
     if (!hasAny) {
       log.warn("No loadout applied.");
-      log.dim("Run 'loadout activate <name>' to apply a loadout.");
+      log.dim("Run 'loadouts activate <name>' to apply a loadout.");
     }
   });

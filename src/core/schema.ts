@@ -15,7 +15,7 @@ export const ArtifactKindSchema = z.string().min(1);
 
 export const OutputModeSchema = z.enum(["symlink", "copy", "generate"]);
 
-// Source reference — path to another .loadout/ directory
+// Source reference — path to another .loadouts/ directory
 export const SourceRefSchema = z.string();
 
 export const RootConfigSchema = z.object({

@@ -1,5 +1,5 @@
 /**
- * YAML kind loader — reads *.yaml / *.yml files from .loadout/kinds/ directories
+ * YAML kind loader — reads *.yaml / *.yml files from .loadouts/kinds/ directories
  * and registers them as KindSpec entries in the registry.
  *
  * Declarative kind files let teams add new artifact types without writing code.

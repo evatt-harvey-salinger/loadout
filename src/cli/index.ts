@@ -52,7 +52,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
     ],
   },
   {
-    title: "Loadout Management",
+    title: "Bundle Management",
     commands: [
       initCommand,
       installCommand,
@@ -84,7 +84,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
 ];
 
 export const cli = new Command()
-  .name("loadout")
+  .name("loadouts")
   .description("Composable configuration bundles for AI coding agents")
   .version(pkg.version);
 

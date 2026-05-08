@@ -50,14 +50,14 @@ export const editCommand = new Command("edit")
       if (scope === "global") {
         const globalRoot = getGlobalRoot();
         if (!globalRoot) {
-          log.error("No global loadout found at ~/.config/loadout");
+          log.error("No global loadout found at ~/.config/loadouts");
           process.exit(1);
         }
         loadoutRoot = globalRoot.path;
       } else {
         const projectRoot = await findNearestLoadoutRoot(cwd);
         if (!projectRoot) {
-          log.error("Not in a loadout project. Run 'loadout init' first.");
+          log.error("Not in a loadout project. Run 'loadouts init' first.");
           process.exit(1);
         }
         loadoutRoot = projectRoot.path;

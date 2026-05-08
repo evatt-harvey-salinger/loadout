@@ -137,9 +137,9 @@ export interface LoadResult {
  * diff, info, init, and global commands.
  *
  * Root collection order:
- *   1. Primary .loadout/ (from ctx.configPath)
+ *   1. Primary .loadouts/ (from ctx.configPath)
  *   2. Sources declared in loadout.yaml (transitively)
- *   3. Global ~/.config/loadout/ (lowest priority)
+ *   3. Global ~/.config/loadouts/ (lowest priority)
  */
 export async function loadResolvedLoadout(
   ctx: CommandContext,
@@ -151,17 +151,17 @@ export async function loadResolvedLoadout(
   if (ctx.scope === "global") {
     const globalRoot = getGlobalRoot();
     if (!globalRoot) {
-      throw new Error("No global loadout found at ~/.config/loadout");
+      throw new Error("No global loadout found at ~/.config/loadouts");
     }
     // Global scope: just the global root, plus any sources it declares
     const collected = collectRootsWithSources(globalRoot, false);
     roots = collected.roots;
     sourceWarnings = collected.warnings;
   } else {
-    // Project scope: start with the nearest .loadout/, collect sources
+    // Project scope: start with the nearest .loadouts/, collect sources
     const discovered = await discoverLoadoutRoots(ctx.projectRoot);
     if (discovered.length === 0) {
-      throw new Error("No .loadout/ directory found. Run 'loadout init' first.");
+      throw new Error("No .loadouts/ directory found. Run 'loadouts init' first.");
     }
     const primaryRoot = discovered[0];
     const collected = collectRootsWithSources(primaryRoot, true);

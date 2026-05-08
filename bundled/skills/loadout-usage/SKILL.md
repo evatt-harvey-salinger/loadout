@@ -1,39 +1,39 @@
 ---
 name: loadout-usage
-description: Use this skill when creating, editing, or managing AI agent configuration—including rules, skills, instructions, hooks, loadouts, or any artifacts in .loadout/. Provides guidance on loadout CLI and authoring patterns.
+description: Use this skill when creating, editing, or managing AI agent configuration—including rules, skills, instructions, hooks, loadouts, or any artifacts in .loadouts/. Provides guidance on loadouts CLI and authoring patterns.
 ---
 
-# Using Loadout
+# Using Loadouts
 
-This project uses **loadout** to manage AI agent configuration. All source artifacts live in `.loadout/` and are rendered to tool directories (`.claude/`, `.cursor/`, etc.) via `loadout sync`.
+This project uses **loadouts** to manage AI agent configuration. All source artifacts live in `.loadouts/` and are rendered to tool directories (`.claude/`, `.cursor/`, etc.) via `loadouts sync`.
 
 ## Key Principles
 
-1. **Edit sources, not outputs.** Modify files in `.loadout/`, then run `loadout sync`. Never edit rendered files in `.claude/`, `.cursor/`, etc. directly.
+1. **Edit sources, not outputs.** Modify files in `.loadouts/`, then run `loadouts sync`. Never edit rendered files in `.claude/`, `.cursor/`, etc. directly.
 
 2. **Two-step artifact creation.** The CLI creates a template file, then you edit it:
    ```bash
    # Step 1: Create template (use --no-edit to skip editor)
-   loadout rule add my-rule --no-edit
-   # Output shows: File: /path/to/.loadout/rules/my-rule.md
+   loadouts rule add my-rule --no-edit
+   # Output shows: File: /path/to/.loadouts/rules/my-rule.md
    
    # Step 2: Edit the file at that path with your content
-   # Step 3: Run loadout sync to apply
+   # Step 3: Run loadouts sync to apply
    ```
 
 3. **Check before committing.** Validate configuration:
    ```bash
-   loadout check -v              # Validate all config
-   loadout status                # Check for drift
+   loadouts check -v              # Validate all config
+   loadouts status                # Check for drift
    ```
 
 ## Creating Artifacts
 
 ### Rules
 ```bash
-loadout rule add <name> --no-edit
-# Then edit: .loadout/rules/<name>.md
-# Then run: loadout sync
+loadouts rule add <name> --no-edit
+# Then edit: .loadouts/rules/<name>.md
+# Then run: loadouts sync
 ```
 
 Rule format:
@@ -51,9 +51,9 @@ Your rule content here.
 
 ### Skills
 ```bash
-loadout skill add <name> --no-edit
-# Then edit: .loadout/skills/<name>/SKILL.md
-# Then run: loadout sync
+loadouts skill add <name> --no-edit
+# Then edit: .loadouts/skills/<name>/SKILL.md
+# Then run: loadouts sync
 ```
 
 Skill format:
@@ -74,16 +74,16 @@ Detailed instructions for the agent.
 
 ### Instructions
 ```bash
-loadout instructions init <loadout-name>
-# Then edit: .loadout/instructions/AGENTS.<loadout-name>.md
-# Then run: loadout sync
+loadouts instructions init <loadout-name>
+# Then edit: .loadouts/instructions/AGENTS.<loadout-name>.md
+# Then run: loadouts sync
 ```
 
 ## File Locations
 
 ```
-.loadout/
-├── loadouts/*.yaml       # Loadout definitions
+.loadouts/
+├── loadouts/*.yaml       # Loadout bundle definitions
 ├── rules/*.md            # Rule files
 ├── skills/*/SKILL.md     # Skill directories
 └── instructions/*.md     # Per-loadout instructions
@@ -93,18 +93,18 @@ loadout instructions init <loadout-name>
 
 | Task | Command |
 |------|---------|
-| Create rule template | `loadout rule add <name> --no-edit` |
-| Create skill template | `loadout skill add <name> --no-edit` |
-| Create loadout | `loadout create <name> -e base` |
-| Apply changes | `loadout sync` |
-| See what's active | `loadout info` |
-| Validate config | `loadout check -v` |
+| Create rule template | `loadouts rule add <name> --no-edit` |
+| Create skill template | `loadouts skill add <name> --no-edit` |
+| Create loadout | `loadouts create <name> -e base` |
+| Apply changes | `loadouts sync` |
+| See what's active | `loadouts info` |
+| Validate config | `loadouts check -v` |
 
 ## Getting More Help
 
-Run `loadout docs <topic>` for detailed documentation:
+Run `loadouts docs <topic>` for detailed documentation:
 
-- `loadout docs quickstart` — Get started fast
-- `loadout docs concepts` — Core model (loadouts, artifacts, scopes)
-- `loadout docs commands` — Full command reference
-- `loadout docs authoring` — Creating rules, skills, instructions
+- `loadouts docs quickstart` — Get started fast
+- `loadouts docs concepts` — Core model (loadouts, artifacts, scopes)
+- `loadouts docs commands` — Full command reference
+- `loadouts docs authoring` — Creating rules, skills, instructions

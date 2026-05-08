@@ -19,19 +19,19 @@ export type ArtifactKind = string;
 // Output modes
 export type OutputMode = "symlink" | "copy" | "generate";
 
-// Source reference — path to another .loadout/ directory
+// Source reference — path to another .loadouts/ directory
 export type SourceRef = string;
 
-// Root config (.loadout/loadout.yaml)
+// Root config (.loadouts/loadouts.yaml)
 export interface RootConfig {
   version: "1";
   default?: string;
   mode?: OutputMode;
   tools?: Tool[];
-  sources?: SourceRef[];  // Paths to other .loadout/ directories
+  sources?: SourceRef[];  // Paths to other .loadouts/ directories
 }
 
-// Loadout definition (.loadout/loadouts/<name>.yaml)
+// Loadout definition (.loadouts/loadouts/<name>.yaml)
 export interface LoadoutDefinition {
   name: string;
   description?: string;
@@ -48,7 +48,7 @@ export type LoadoutInclude =
 export interface ResolvedItem {
   kind: ArtifactKind;
   sourcePath: string;    // Absolute path to source file/directory
-  relativePath: string;  // Path relative to .loadout/ root
+  relativePath: string;  // Path relative to .loadouts/ root
   tools: Tool[];         // Active tools for this item
 }
 
@@ -58,7 +58,7 @@ export interface ResolvedLoadout {
   description?: string;
   tools: Tool[];
   items: ResolvedItem[];
-  rootPath: string;        // Absolute path to the owning .loadout/ directory
+  rootPath: string;        // Absolute path to the owning .loadouts/ directory
 }
 
 // Output spec produced by the renderer for one (item, tool) pair
@@ -77,7 +77,7 @@ export interface RenderedOutput {
   hash: string;
 }
 
-// Manifest entry stored in .loadout/.state.json
+// Manifest entry stored in .loadouts/.state.json
 export interface ManifestEntry {
   tools: Tool[];        // All tools that share this output path
   kind: ArtifactKind;
@@ -95,7 +95,7 @@ export interface ShadowedEntry {
   targetPath: string;
 }
 
-// Applied state persisted to .loadout/.state.json
+// Applied state persisted to .loadouts/.state.json
 export interface AppliedState {
   active: string[];     // Set of active loadout names
   mode: OutputMode;
@@ -104,9 +104,9 @@ export interface AppliedState {
   shadowed: ShadowedEntry[];
 }
 
-// A discovered .loadout/ root directory
+// A discovered .loadouts/ root directory
 export interface LoadoutRoot {
-  path: string;          // Absolute path to .loadout/ directory
+  path: string;          // Absolute path to .loadouts/ directory
   level: "project" | "source" | "global" | "bundled";
   depth: number;         // 0 = current dir, higher = further up tree / source chain
   sourceRef?: string;    // Original source reference (for debugging/display)
@@ -115,7 +115,7 @@ export interface LoadoutRoot {
 // Command execution context — built by getContext()
 export interface CommandContext {
   scope: Scope;
-  configPath: string;    // Absolute path to .loadout/ or ~/.config/loadout
+  configPath: string;    // Absolute path to .loadouts/ or ~/.config/loadouts
   statePath: string;     // Absolute path to .state.json within configPath
   projectRoot: string;   // Where outputs are applied (cwd for project, home for global)
 }

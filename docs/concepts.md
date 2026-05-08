@@ -1,12 +1,12 @@
 # Core Concepts
 
-## The `.loadout/` Directory
+## The `.loadouts/` Directory
 
-Project configuration lives in `.loadout/` (global config lives in `~/.config/loadout/`):
+Project configuration lives in `.loadouts/` (global config lives in `~/.config/loadouts/`):
 
 ```
-.loadout/
-├── loadout.yaml          # Root config (version, defaults)
+.loadouts/
+├── loadouts.yaml         # Root config (version, defaults)
 ├── loadouts/             # Named configuration bundles
 │   └── base.yaml
 ├── instructions/         # Per-loadout instruction files
@@ -19,26 +19,26 @@ Project configuration lives in `.loadout/` (global config lives in `~/.config/lo
 
 | Scope | Location | Flag | Purpose |
 |-------|----------|------|---------|
-| **Project** | `./.loadout/` | `-l` | Project-specific config |
-| **Global** | `~/.config/loadout/` | `-g` | User-wide config |
+| **Project** | `./.loadouts/` | `-l` | Project-specific config |
+| **Global** | `~/.config/loadouts/` | `-g` | User-wide config |
 
 Most commands auto-detect scope. Use `-l`/`-g` to be explicit, or `-a` for both.
 
 ## Active State
 
-**Activating** a loadout adds it to the "active set" and renders its artifacts to tool directories. The active set persists in `.loadout/.state.json` — you don't need to re-activate after restarting your terminal.
+**Activating** a loadout adds it to the "active set" and renders its artifacts to tool directories. The active set persists in `.loadouts/.state.json` — you don't need to re-activate after restarting your terminal.
 
-- `loadout activate <name>` — Add to active set and render
-- `loadout deactivate <name>` — Remove from active set and clean up outputs
-- `loadout sync` — Re-render active loadouts (after editing source files)
-- `loadout status` — Show what's active and detect drift
+- `loadouts activate <name>` — Add to active set and render
+- `loadouts deactivate <name>` — Remove from active set and clean up outputs
+- `loadouts sync` — Re-render active loadouts (after editing source files)
+- `loadouts status` — Show what's active and detect drift
 
 ## Loadouts
 
 A **loadout** is a named bundle of artifacts:
 
 ```yaml
-# .loadout/loadouts/backend.yaml
+# .loadouts/loadouts/backend.yaml
 name: backend
 description: Backend development configuration
 extends: base
@@ -54,7 +54,7 @@ include:
 **Multiple active:** Activate several loadouts together:
 
 ```bash
-loadout activate base backend ml    # All three active
+loadouts activate base backend ml    # All three active
 ```
 
 When multiple loadouts define the same artifact, later arguments take precedence (`ml` wins over `backend` wins over `base`).
@@ -94,16 +94,16 @@ include:
 Share configuration across projects:
 
 ```yaml
-# packages/api/.loadout/loadout.yaml
+# packages/api/.loadouts/loadouts.yaml
 version: "1"
 sources:
   - ../..                    # Parent monorepo
   - ~/dotfiles               # Personal global config
 ```
 
-**Resolution order:** Local `.loadout/` → Sources (in declaration order) → Global `~/.config/loadout/`.
+**Resolution order:** Local `.loadouts/` → Sources (in declaration order) → Global `~/.config/loadouts/`.
 
-When two sources define a loadout with the same name, the first match wins. If a source path doesn't exist, loadout warns and continues.
+When two sources define a loadout with the same name, the first match wins. If a source path doesn't exist, loadouts warns and continues.
 
 ## Output Modes
 

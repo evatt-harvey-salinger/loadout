@@ -56,78 +56,78 @@ function cleanupFixture(): void {
 // Standard monorepo fixture used by most tests
 function setupMonorepoFixture(): void {
   setupFixture({
-    // Root level .loadout/
-    "monorepo/.loadout/loadout.yaml": `
+    // Root level .loadouts/
+    "monorepo/.loadouts/loadouts.yaml": `
 version: "1"
 default: base
 `,
-    "monorepo/.loadout/loadouts/base.yaml": `
+    "monorepo/.loadouts/loadouts/base.yaml": `
 name: base
 description: Monorepo base configuration
 include:
   - rules/shared-style.md
   - skills/debugging
 `,
-    "monorepo/.loadout/loadouts/common.yaml": `
+    "monorepo/.loadouts/loadouts/common.yaml": `
 name: common
 description: Common utilities
 include:
   - rules/logging.md
 `,
-    "monorepo/.loadout/rules/shared-style.md": `---
+    "monorepo/.loadouts/rules/shared-style.md": `---
 description: Shared code style
 ---
 # Shared Style Guide
 `,
-    "monorepo/.loadout/rules/logging.md": `---
+    "monorepo/.loadouts/rules/logging.md": `---
 description: Logging standards
 ---
 # Logging Guide
 `,
-    "monorepo/.loadout/skills/debugging/SKILL.md": `---
+    "monorepo/.loadouts/skills/debugging/SKILL.md": `---
 name: debugging
 description: Debugging utilities
 ---
 # Debugging Skill
 `,
-    "monorepo/.loadout/AGENTS.md": `# Monorepo Instructions
+    "monorepo/.loadouts/AGENTS.md": `# Monorepo Instructions
 `,
 
-    // packages/api/.loadout/ with source to parent
-    "monorepo/packages/api/.loadout/loadout.yaml": `
+    // packages/api/.loadouts/ with source to parent
+    "monorepo/packages/api/.loadouts/loadouts.yaml": `
 version: "1"
 default: api
 sources:
   - ../..
 `,
-    "monorepo/packages/api/.loadout/loadouts/api.yaml": `
+    "monorepo/packages/api/.loadouts/loadouts/api.yaml": `
 name: api
 description: API package configuration
 include:
   - rules/api-endpoints.md
 `,
-    "monorepo/packages/api/.loadout/rules/api-endpoints.md": `---
+    "monorepo/packages/api/.loadouts/rules/api-endpoints.md": `---
 description: API endpoint conventions
 ---
 # API Endpoints
 `,
-    "monorepo/packages/api/.loadout/AGENTS.md": `# API Package Instructions
+    "monorepo/packages/api/.loadouts/AGENTS.md": `# API Package Instructions
 `,
 
-    // packages/web/.loadout/ with source to parent
-    "monorepo/packages/web/.loadout/loadout.yaml": `
+    // packages/web/.loadouts/ with source to parent
+    "monorepo/packages/web/.loadouts/loadouts.yaml": `
 version: "1"
 default: web
 sources:
   - ../..
 `,
-    "monorepo/packages/web/.loadout/loadouts/web.yaml": `
+    "monorepo/packages/web/.loadouts/loadouts/web.yaml": `
 name: web
 description: Web package configuration
 include:
   - rules/components.md
 `,
-    "monorepo/packages/web/.loadout/rules/components.md": `---
+    "monorepo/packages/web/.loadouts/rules/components.md": `---
 description: Component guidelines
 ---
 # Components
@@ -139,9 +139,9 @@ describe("Sources: Root Collection", () => {
   beforeEach(setupMonorepoFixture);
   afterEach(cleanupFixture);
 
-  it("discovers source roots from loadout.yaml", () => {
+  it("discovers source roots from loadouts.yaml", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -152,12 +152,12 @@ describe("Sources: Root Collection", () => {
     expect(roots).toHaveLength(2); // primary + parent source
     expect(roots[0].level).toBe("project");
     expect(roots[1].level).toBe("source");
-    expect(roots[1].path).toContain("monorepo/.loadout");
+    expect(roots[1].path).toContain("monorepo/.loadouts");
   });
 
   it("makes loadouts from sources available", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -168,12 +168,12 @@ describe("Sources: Root Collection", () => {
     const baseDef = findLoadoutDefinition("base", roots);
     expect(baseDef).not.toBeNull();
     expect(baseDef?.definition.name).toBe("base");
-    expect(baseDef?.rootPath).toContain("monorepo/.loadout");
+    expect(baseDef?.rootPath).toContain("monorepo/.loadouts");
   });
 
   it("returns warnings for missing sources", () => {
     // Add a missing source reference
-    const configPath = path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/loadout.yaml");
+    const configPath = path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts/loadouts.yaml");
     fs.writeFileSync(configPath, `
 version: "1"
 default: api
@@ -183,7 +183,7 @@ sources:
 `);
 
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -203,7 +203,7 @@ describe("Sources: Loadout Resolution", () => {
 
   it("resolves local loadout with local artifacts", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -220,7 +220,7 @@ describe("Sources: Loadout Resolution", () => {
 
   it("resolves loadout from source root", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -240,7 +240,7 @@ describe("Sources: Loadout Resolution", () => {
 
   it("artifacts point to their source root", () => {
     const primaryRoot: LoadoutRoot = {
-      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
+      path: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
       level: "project",
       depth: 0,
     };
@@ -250,8 +250,8 @@ describe("Sources: Loadout Resolution", () => {
 
     const sharedStyle = loadout.items.find(i => i.relativePath === "rules/shared-style.md");
     
-    // Artifact should point to monorepo .loadout/, not api .loadout/
-    expect(sharedStyle?.sourcePath).toContain("monorepo/.loadout");
+    // Artifact should point to monorepo .loadouts/, not api .loadouts/
+    expect(sharedStyle?.sourcePath).toContain("monorepo/.loadouts");
     expect(sharedStyle?.sourcePath).not.toContain("packages/api");
   });
 });
@@ -263,8 +263,8 @@ describe("Sources: Full Context Resolution", () => {
   it("loadResolvedLoadout integrates sources correctly", async () => {
     const ctx: CommandContext = {
       scope: "project",
-      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/.state.json"),
+      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
+      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts/.state.json"),
       projectRoot: path.join(FIXTURES_DIR, "monorepo/packages/api"),
     };
 
@@ -281,8 +281,8 @@ describe("Sources: Full Context Resolution", () => {
   it("can resolve loadouts defined in sources", async () => {
     const ctx: CommandContext = {
       scope: "project",
-      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/.state.json"),
+      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
+      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts/.state.json"),
       projectRoot: path.join(FIXTURES_DIR, "monorepo/packages/api"),
     };
 
@@ -295,7 +295,7 @@ describe("Sources: Full Context Resolution", () => {
 
   it("returns source warnings for missing sources", async () => {
     // Add a missing source reference
-    const configPath = path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/loadout.yaml");
+    const configPath = path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts/loadouts.yaml");
     fs.writeFileSync(configPath, `
 version: "1"
 default: api
@@ -306,8 +306,8 @@ sources:
 
     const ctx: CommandContext = {
       scope: "project",
-      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout"),
-      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadout/.state.json"),
+      configPath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts"),
+      statePath: path.join(FIXTURES_DIR, "monorepo/packages/api/.loadouts/.state.json"),
       projectRoot: path.join(FIXTURES_DIR, "monorepo/packages/api"),
     };
 

@@ -2,10 +2,10 @@
 
 This guide covers creating rules, skills, and instructions. The typical workflow:
 
-1. **Create** an artifact (`loadout rule add`, `loadout skill add`, etc.)
+1. **Create** an artifact (`loadouts rule add`, `loadouts skill add`, etc.)
 2. **Include** it in a loadout definition (`loadouts/<name>.yaml`)
-3. **Sync** to render outputs (`loadout sync`)
-4. **Verify** with `loadout status` or `loadout info`
+3. **Sync** to render outputs (`loadouts sync`)
+4. **Verify** with `loadouts status` or `loadouts info`
 
 ---
 
@@ -32,14 +32,14 @@ Use errors.Join() for error wrapping.
 
 **Create a rule:**
 ```bash
-loadout rule add api-standards -d "REST API conventions" -p "**/*_handler.go"
+loadouts rule add api-standards -d "REST API conventions" -p "**/*_handler.go"
 ```
 
 After creating, add `rules/api-standards.md` to your loadout's `include` list.
 
 **Import existing:**
 ```bash
-loadout rule import .cursor/rules/code.mdc --keep
+loadouts rule import .cursor/rules/code.mdc --keep
 ```
 
 ---
@@ -83,7 +83,7 @@ Invoke this skill when debugging Python errors...
 
 **Create a skill:**
 ```bash
-loadout skill add deploy -d "Deployment procedures"
+loadouts skill add deploy -d "Deployment procedures"
 ```
 
 After creating, add `skills/deploy` to your loadout's `include` list.
@@ -92,27 +92,27 @@ After creating, add `skills/deploy` to your loadout's `include` list.
 
 ## Instructions
 
-Per-loadout instruction files live at `.loadout/instructions/AGENTS.<loadout>.md`. When activated, they render to `AGENTS.md` (or `CLAUDE.md` for Claude Code, which wraps and references `AGENTS.md`).
+Per-loadout instruction files live at `.loadouts/instructions/AGENTS.<loadout>.md`. When activated, they render to `AGENTS.md` (or `CLAUDE.md` for Claude Code, which wraps and references `AGENTS.md`).
 
 **Create instructions:**
 ```bash
-loadout instructions init backend
-loadout instructions edit backend
+loadouts instructions init backend
+loadouts instructions edit backend
 ```
 
 **Import existing:**
 ```bash
-loadout instructions import                    # Auto-detects AGENTS.md or CLAUDE.md
-loadout instructions import --loadout backend  # Import to specific loadout
+loadouts instructions import                    # Auto-detects AGENTS.md or CLAUDE.md
+loadouts instructions import --loadout backend  # Import to specific loadout
 ```
 
-After creating or importing, run `loadout sync` to render.
+After creating or importing, run `loadouts sync` to render.
 
 ---
 
 ## Loadout Definitions
 
-Loadouts are YAML files in `.loadout/loadouts/`:
+Loadouts are YAML files in `.loadouts/loadouts/`:
 
 ```yaml
 name: backend
@@ -144,15 +144,15 @@ include:
 
 ## Custom Kinds
 
-Define custom artifact types in `.loadout/kinds/*.yaml`:
+Define custom artifact types in `.loadouts/kinds/*.yaml`:
 
 ```yaml
-# .loadout/kinds/prompt.yaml
+# .loadouts/kinds/prompt.yaml
 id: myteam.prompt
 description: Reusable prompt snippets.
 
 detect:
-  pathPrefix: prompts/          # Match files in .loadout/prompts/
+  pathPrefix: prompts/          # Match files in .loadouts/prompts/
 
 layout: file                     # One file → one output
 
@@ -168,13 +168,13 @@ targets:
 
 **Detection:** `pathPrefix` or `pathExact`
 
-List all kinds: `loadout kinds -v`
+List all kinds: `loadouts kinds -v`
 
 ---
 
 ## Token Estimation
 
-`loadout info` shows token estimates:
+`loadouts info` shows token estimates:
 
 - **Upfront** — Loaded at session start (rules, instructions, skill descriptions)
 - **Lazy** — Loaded on-demand (full skill content)

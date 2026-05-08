@@ -167,6 +167,6 @@ export const diffCommand = new Command("diff")
 
     if (!hasAny) {
       log.warn("No loadout found.");
-      log.dim("Run 'loadout init' to set up a loadout.");
+      log.dim("Run 'loadouts init' to set up a loadout.");
     }
   });

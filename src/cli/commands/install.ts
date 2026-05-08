@@ -2,7 +2,7 @@
  * loadout install — Import existing tool configurations into loadout.
  *
  * Scans all known tool directories for rules, skills, and instructions,
- * then allows the user to import them into .loadout/.
+ * then allows the user to import them into .loadouts/.
  */
 
 import { Command } from "commander";
@@ -151,7 +151,7 @@ function displayImportTable(results: ImportResult[], targetLoadout: string, keep
   // Rows
   for (const result of results) {
     const source = result.artifact.displayPath.padEnd(maxSourceLen + 2);
-    const dest = `.loadout/${result.artifact.destPath}`;
+    const dest = `.loadouts/${result.artifact.destPath}`;
     
     if (result.success) {
       console.log(chalk.green("  ✓ ") + source + chalk.dim("→  ") + dest);
@@ -345,7 +345,7 @@ async function addToLoadout(
 // ---------------------------------------------------------------------------
 
 /**
- * Get list of available loadouts in .loadout/loadouts/
+ * Get list of available loadouts in .loadouts/loadouts/
  */
 function getAvailableLoadouts(loadoutPath: string): string[] {
   const loadoutsDir = path.join(loadoutPath, "loadouts");
@@ -662,7 +662,7 @@ export async function runInstall(
 
   if (imported > 0) {
     console.log();
-    log.info(`Run ${chalk.cyan("loadout sync")} to apply changes to tool directories.`);
+    log.info(`Run ${chalk.cyan("loadouts sync")} to apply changes to tool directories.`);
   }
 
   return { imported, skipped, failed };
@@ -686,7 +686,7 @@ export const installCommand = new Command("install")
   .action(async (options: InstallOptions) => {
     const cwd = process.cwd();
 
-    // Find .loadout/ directory, preferring project-level
+    // Find .loadouts/ directory, preferring project-level
     const loadoutRoot = await findNearestLoadoutRoot(cwd);
     
     // Check if we have a project-level loadout or only global
@@ -696,9 +696,9 @@ export const installCommand = new Command("install")
     let loadoutPath: string;
     
     if (!hasProjectLoadout) {
-      // No project-level .loadout/ — offer to initialize
+      // No project-level .loadouts/ — offer to initialize
       console.log();
-      log.warn("No project .loadout/ found.");
+      log.warn("No project .loadouts/ found.");
       
       // Auto-init with --yes, otherwise prompt
       if (!options.yes) {
@@ -715,7 +715,7 @@ export const installCommand = new Command("install")
         });
         
         if (answer === "n" || answer === "no") {
-          log.dim("Run 'loadout init' to set up a project loadout.");
+          log.dim("Run 'loadouts init' to set up a project loadout.");
           process.exit(0);
         }
       } else {
@@ -725,11 +725,11 @@ export const installCommand = new Command("install")
       // Initialize a minimal project loadout
       console.log();
       if (options.dryRun) {
-        log.info("Would initialize .loadout/ (dry-run)");
+        log.info("Would initialize .loadouts/ (dry-run)");
         // For dry-run, we still need to scan from the project root
         // but we don't create the loadout directory
         projectRoot = cwd;
-        loadoutPath = path.join(cwd, ".loadout");
+        loadoutPath = path.join(cwd, ".loadouts");
       } else {
         loadoutPath = await initProjectLoadout(cwd);
         projectRoot = cwd;

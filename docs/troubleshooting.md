@@ -2,17 +2,17 @@
 
 ## Common Issues
 
-### "No .loadout/ directory found"
+### "No .loadouts/ directory found"
 
-Run `loadout init` to create one, or check you're in the right directory.
+Run `loadouts init` to create one, or check you're in the right directory.
 
 ### "Loadout not found: <name>"
 
 The loadout doesn't exist in the current scope. Check available loadouts:
 ```bash
-loadout list        # Project scope
-loadout list -g     # Global scope
-loadout list -a     # Both scopes
+loadouts list        # Project scope
+loadouts list -g     # Global scope
+loadouts list -a     # Both scopes
 ```
 
 ### "Cannot infer artifact kind for path"
@@ -23,33 +23,33 @@ The file path doesn't match any known kind. Built-in kinds expect:
 - **Instructions:** `instructions/AGENTS.*.md`
 - **Prompts:** `prompts/*.md`
 
-For custom artifact types, create a `.loadout/kinds/*.yaml` definition. Run `loadout kinds -v` to see all registered kinds and their detection rules.
+For custom artifact types, create a `.loadouts/kinds/*.yaml` definition. Run `loadouts kinds -v` to see all registered kinds and their detection rules.
 
 ### "Include not found"
 
-A file in your loadout's `include` list doesn't exist. Paths are relative to `.loadout/`.
+A file in your loadout's `include` list doesn't exist. Paths are relative to `.loadouts/`.
 
 ### Outputs not updating after edits
 
-Run `loadout sync` to regenerate outputs from sources. Then verify with `loadout status`.
+Run `loadouts sync` to regenerate outputs from sources. Then verify with `loadouts status`.
 
 If outputs still don't appear, check:
-1. Is the artifact included in an active loadout? (`loadout info`)
-2. Is the loadout activated? (`loadout status`)
+1. Is the artifact included in an active loadout? (`loadouts info`)
+2. Is the loadout activated? (`loadouts status`)
 
 ### Symlinks broken after moving project
 
-Symlinks use absolute paths. Run `loadout sync` to recreate them.
+Symlinks use absolute paths. Run `loadouts sync` to recreate them.
 
 ### Tool not picking up rules/skills
 
 First, verify outputs were rendered:
 ```bash
-loadout status    # Check for drift or missing outputs
-loadout sync      # Re-render if needed
+loadouts status    # Check for drift or missing outputs
+loadouts sync      # Re-render if needed
 ```
 
-**Cursor:** Rules need `.mdc` extension — loadout handles this automatically. Restart Cursor if rules don't appear immediately.
+**Cursor:** Rules need `.mdc` extension — loadouts handles this automatically. Restart Cursor if rules don't appear immediately.
 
 **OpenCode:** Rules require the `opencode-rules` plugin. Add to `opencode.json`:
 ```json
@@ -66,7 +66,7 @@ loadout sync      # Re-render if needed
 
 Run validation to catch issues:
 ```bash
-loadout check -v
+loadouts check -v
 ```
 
 Validates:
@@ -78,13 +78,13 @@ Validates:
 
 ### Shadowed file collision
 
-A **shadowed file** occurs when loadout wants to write to a path that already has an unmanaged file. Loadout never overwrites unmanaged files — it skips them and reports the collision.
+A **shadowed file** occurs when loadouts wants to write to a path that already has an unmanaged file. Loadouts never overwrites unmanaged files — it skips them and reports the collision.
 
 **To resolve:**
 ```bash
-loadout rule import .cursor/rules/existing.mdc  # Import into loadout
+loadouts rule import .cursor/rules/existing.mdc  # Import into loadout
 # OR
-rm .cursor/rules/existing.mdc && loadout sync   # Remove and re-render
+rm .cursor/rules/existing.mdc && loadouts sync  # Remove and re-render
 # OR keep the unmanaged file (it takes precedence)
 ```
 
@@ -94,45 +94,45 @@ rm .cursor/rules/existing.mdc && loadout sync   # Remove and re-render
 
 ### Preview changes without applying
 ```bash
-loadout activate backend --dry-run
-loadout sync --dry-run
+loadouts activate backend --dry-run
+loadouts sync --dry-run
 ```
 
 ### See what's active
 ```bash
-loadout status
-loadout info
+loadouts status
+loadouts info
 ```
 
 ### Check token cost
 ```bash
-loadout info backend    # Shows upfront and lazy tokens
+loadouts info backend    # Shows upfront and lazy tokens
 ```
 
 ---
 
-## Removing Loadout
+## Removing Loadouts
 
 ### From a project
 
-**Warning:** These commands delete your loadout configuration. Back up `.loadout/` first if you want to preserve your rules and skills.
+**Warning:** These commands delete your loadout configuration. Back up `.loadouts/` first if you want to preserve your rules and skills.
 
 ```bash
-loadout clear           # Remove all managed outputs (safe, reversible)
+loadouts clear           # Remove all managed outputs (safe, reversible)
 ```
 
-To fully remove loadout from a project:
+To fully remove loadouts from a project:
 ```bash
-loadout clear           # Remove managed outputs first
-rm -rf .loadout         # Delete source config (irreversible)
+loadouts clear           # Remove managed outputs first
+rm -rf .loadouts        # Delete source config (irreversible)
 rm CLAUDE.md            # Remove generated wrapper if present
 ```
 
 ### Global config
 
 ```bash
-loadout clear -g        # Remove global managed outputs
-rm -rf ~/.config/loadout  # Delete global config (irreversible)
+loadouts clear -g        # Remove global managed outputs
+rm -rf ~/.config/loadouts  # Delete global config (irreversible)
 ```
 
 ---
@@ -140,8 +140,8 @@ rm -rf ~/.config/loadout  # Delete global config (irreversible)
 ## Getting Help
 
 ```bash
-loadout --help          # Command overview
-loadout <cmd> --help    # Command-specific help
-loadout docs            # Full documentation
-loadout docs <topic>    # Topic-specific docs
+loadouts --help          # Command overview
+loadouts <cmd> --help    # Command-specific help
+loadouts docs            # Full documentation
+loadouts docs <topic>    # Topic-specific docs
 ```

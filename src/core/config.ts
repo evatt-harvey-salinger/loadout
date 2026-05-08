@@ -17,11 +17,11 @@ import type {
   LoadoutRoot,
 } from "./types.js";
 
-const ROOT_CONFIG_FILE = "loadout.yaml";
+const ROOT_CONFIG_FILE = "loadouts.yaml";
 const LOADOUTS_DIR = "loadouts";
 
 /**
- * Parse the root config from a .loadout/ directory.
+ * Parse the root config from a .loadouts/ directory.
  * Returns default config if file doesn't exist.
  */
 export function parseRootConfig(loadoutRoot: string): RootConfig {
@@ -46,7 +46,7 @@ export function parseLoadoutDefinition(filePath: string): LoadoutDefinition {
 }
 
 /**
- * List available loadouts in a .loadout/ directory.
+ * List available loadouts in a .loadouts/ directory.
  */
 export function listLoadouts(loadoutRoot: string): string[] {
   const loadoutsDir = path.join(loadoutRoot, LOADOUTS_DIR);

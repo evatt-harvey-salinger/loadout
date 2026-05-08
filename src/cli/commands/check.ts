@@ -49,11 +49,11 @@ async function checkRoot(
   try {
     parseRootConfig(root.path);
     if (verbose) {
-      log.success("  loadout.yaml valid");
+      log.success("  loadouts.yaml valid");
     }
   } catch (err) {
     log.error(
-      `  loadout.yaml invalid: ${err instanceof Error ? err.message : String(err)}`
+      `  loadouts.yaml invalid: ${err instanceof Error ? err.message : String(err)}`
     );
     hasErrors = true;
   }
