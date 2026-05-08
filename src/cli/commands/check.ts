@@ -9,6 +9,7 @@
  */
 
 import { Command } from "commander";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   findNearestLoadoutRoot,
@@ -146,7 +147,7 @@ export const checkCommand = new Command("check")
         projectRoot = await getProjectRoot(cwd);
       } else {
         root = getGlobalRoot();
-        projectRoot = require("os").homedir();
+        projectRoot = os.homedir();
       }
 
       if (!root) continue;
