@@ -36,7 +36,7 @@ export async function executeDiff(
   const result = await loadResolvedLoadout(ctx, name);
   const { loadout, loadoutName } = result;
 
-  const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
+  const plan = await planRender(loadout, ctx.projectRoot, ctx.scope, ctx.configPath);
   const state = loadState(ctx.configPath);
 
   heading(`Diff: ${loadoutName} (${ctx.scope})`);

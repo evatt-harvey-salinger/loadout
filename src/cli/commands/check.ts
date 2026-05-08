@@ -92,7 +92,7 @@ async function checkRoot(
         loadout.items.push(instructionItem);
       }
 
-      const plan = await planRender(loadout, projectRoot, scope);
+      const plan = await planRender(loadout, projectRoot, scope, root.path);
 
       if (plan.errors.length > 0) {
         log.warn(`  ${name}: ${plan.errors.length} render errors`);

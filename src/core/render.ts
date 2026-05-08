@@ -212,9 +212,13 @@ function resolveExpandedOutputSpec(
 export async function planRender(
   loadout: ResolvedLoadout,
   projectRoot: string,
-  scope: Scope
+  scope: Scope,
+  statePath?: string
 ): Promise<RenderPlan> {
-  const state = loadState(loadout.rootPath);
+  // Use explicit statePath if provided, otherwise fall back to loadout's root.
+  // This is critical for bundled loadouts which don't have their own state file—
+  // they share state with the scope that activated them.
+  const state = loadState(statePath ?? loadout.rootPath);
   const outputs: RenderPlan["outputs"] = [];
   const shadowed: ShadowedEntry[] = [];
   const errors: string[] = [];

@@ -76,7 +76,7 @@ async function resolveMultipleLoadouts(
       if (instructionItem) loadout.items.push(instructionItem);
     }
 
-    const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
+    const plan = await planRender(loadout, ctx.projectRoot, ctx.scope, ctx.configPath);
 
     if (plan.errors.length > 0) {
       log.error(`Errors planning "${name}":`);

@@ -45,7 +45,7 @@ import {
   renderLoadoutSeparator,
   renderLoadoutCell,
 } from "../../lib/loadout-column.js";
-import type { CommandContext, AppliedState, Tool, LoadoutRoot } from "../../core/types.js";
+import type { CommandContext, AppliedState, Tool, LoadoutRoot, ResolvedLoadout } from "../../core/types.js";
 import type { RenderPlan } from "../../core/types.js";
 
 type DriftStatus = DriftResult["status"];
@@ -268,49 +268,49 @@ function collapseSkillReferences(artifacts: ArtifactStatus[]): ArtifactStatus[] 
 }
 
 /**
- * Load status group for a single context.
+ * Load status group for a single loadout within a context.
  */
-async function loadStatusGroup(
+async function loadStatusGroupForLoadout(
   ctx: CommandContext,
+  loadoutName: string,
+  state: AppliedState,
   showReferences: boolean
 ): Promise<LoadoutStatusGroup | null> {
-  const state = loadState(ctx.configPath);
-  if (!state || state.active.length === 0) return null;
-
-  // Get scope indicator from roots
-  let scope: ScopeIndicator = ctx.scope === "global" ? { type: "global" } : { type: "local" };
+  // Resolve the loadout to get its items
+  let loadout: ResolvedLoadout;
   let roots: LoadoutRoot[] = [];
-  
+  let scope: ScopeIndicator = ctx.scope === "global" ? { type: "global" } : { type: "local" };
+
   try {
-    const result = await loadResolvedLoadout(ctx, state.active[0]);
+    const result = await loadResolvedLoadout(ctx, loadoutName);
+    loadout = result.loadout;
     roots = result.roots;
-    scope = getScopeFromRoots(result.loadout.rootPath, roots, ctx.scope);
-  } catch { /* use default scope */ }
+    scope = getScopeFromRoots(loadout.rootPath, roots, ctx.scope);
+  } catch {
+    // Loadout can't be resolved (deleted, broken, etc.) - skip
+    return null;
+  }
 
-  // Detect config drift
-  let config: ConfigDrift = { added: [], removed: [] };
-  try {
-    const seenTargets = new Set<string>();
-    const mergedOutputs: RenderPlan["outputs"] = [];
+  // Plan what this loadout would render
+  const plan = await planRender(loadout, ctx.projectRoot, ctx.scope, ctx.configPath);
 
-    for (const activeName of state.active) {
-      const { loadout } = await loadResolvedLoadout(ctx, activeName);
-      const plan = await planRender(loadout, ctx.projectRoot, ctx.scope);
-      for (const output of plan.outputs) {
-        if (!seenTargets.has(output.spec.targetPath)) {
-          seenTargets.add(output.spec.targetPath);
-          mergedOutputs.push(output);
-        }
-      }
-    }
+  // Build a set of source paths this loadout owns
+  const loadoutSourcePaths = new Set<string>();
+  for (const output of plan.outputs) {
+    loadoutSourcePaths.add(output.spec.sourcePath);
+  }
 
-    const mergedPlan: RenderPlan = { outputs: mergedOutputs, shadowed: [], errors: [] };
-    config = detectConfigDrift(mergedPlan, state);
-  } catch { /* ignore */ }
+  // Filter drift results to only include entries from this loadout
+  const allDriftResults = detectDrift(state, ctx.projectRoot);
+  const loadoutDriftResults = allDriftResults.filter((r) =>
+    loadoutSourcePaths.has(r.entry.sourcePath)
+  );
 
-  // Detect output drift
-  const driftResults = detectDrift(state, ctx.projectRoot);
-  const { artifacts, tools } = groupByArtifact(driftResults, ctx.configPath, ctx.projectRoot);
+  const { artifacts, tools } = groupByArtifact(
+    loadoutDriftResults,
+    ctx.configPath,
+    ctx.projectRoot
+  );
 
   // Process artifacts
   let displayArtifacts: ArtifactStatus[];
@@ -320,16 +320,27 @@ async function loadStatusGroup(
     displayArtifacts = collapseSkillReferences(artifacts);
   }
 
-  // Process shadowed files
-  const toolsByTarget = new Map<string, string[]>();
-  for (const s of state.shadowed) {
-    const tools = toolsByTarget.get(s.targetPath) || [];
-    tools.push(s.tool);
-    toolsByTarget.set(s.targetPath, tools);
-  }
-  const shadowed = Array.from(toolsByTarget.entries()).map(([targetPath, tools]) => ({
-    targetPath,
-    tools,
+  // Detect config drift for this loadout
+  // Compare plan outputs to manifest entries with matching source paths
+  const manifestTargetsForLoadout = new Set(
+    state.entries
+      .filter((e) => loadoutSourcePaths.has(e.sourcePath))
+      .map((e) => e.targetPath)
+  );
+  const planTargets = new Set(plan.outputs.map((o) => o.spec.targetPath));
+
+  const added = plan.outputs
+    .filter((o) => !manifestTargetsForLoadout.has(o.spec.targetPath))
+    .map((o) => o.spec.targetPath);
+  const removed = state.entries
+    .filter((e) => loadoutSourcePaths.has(e.sourcePath) && !planTargets.has(e.targetPath))
+    .map((e) => e.targetPath);
+  const config: ConfigDrift = { added, removed };
+
+  // Process shadowed files for this loadout
+  const loadoutShadowed = plan.shadowed.map((s) => ({
+    targetPath: s.targetPath,
+    tools: [s.tool],
   }));
 
   // Check sync status
@@ -338,17 +349,38 @@ async function loadStatusGroup(
   const inSync = configInSync && outputInSync;
 
   return {
-    loadoutName: state.active.join(", "),
+    loadoutName,
     scope,
-    isActive: true, // Status only shows active loadouts
+    isActive: true,
     appliedAt: state.appliedAt,
     mode: state.mode,
     artifacts: displayArtifacts,
     tools,
     config,
-    shadowed,
+    shadowed: loadoutShadowed,
     inSync,
   };
+}
+
+/**
+ * Load all status groups for a context (one per active loadout).
+ */
+async function loadStatusGroupsForContext(
+  ctx: CommandContext,
+  showReferences: boolean
+): Promise<LoadoutStatusGroup[]> {
+  const state = loadState(ctx.configPath);
+  if (!state || state.active.length === 0) return [];
+
+  const groups: LoadoutStatusGroup[] = [];
+  for (const loadoutName of state.active) {
+    const group = await loadStatusGroupForLoadout(ctx, loadoutName, state, showReferences);
+    if (group && group.artifacts.length > 0) {
+      groups.push(group);
+    }
+  }
+
+  return groups;
 }
 
 /**
@@ -512,8 +544,8 @@ export async function executeStatus(
     // Check for unsanitized rules first
     checkUnsanitizedRules(ctx);
 
-    const group = await loadStatusGroup(ctx, showReferences);
-    if (group) groups.push(group);
+    const contextGroups = await loadStatusGroupsForContext(ctx, showReferences);
+    groups.push(...contextGroups);
   }
 
   if (groups.length === 0) {
