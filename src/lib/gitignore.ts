@@ -2,9 +2,9 @@
  * Gitignore management — update .gitignore with loadout-managed paths.
  *
  * Uses markers to identify the managed section:
- *   # <loadout>
+ *   # <loadouts>
  *   ...managed paths...
- *   # </loadout>
+ *   # </loadouts>
  */
 
 import * as path from "node:path";
@@ -29,7 +29,7 @@ export function updateGitignore(
   const gitignorePath = path.join(projectRoot, ".gitignore");
 
   // Always include the state file
-  const allPaths = [".loadouts/.state.json", ...managedPaths];
+  const allPaths = [".loadouts/.state.json", ".loadouts/.fallback-applied", ...managedPaths];
 
   // Sort and deduplicate
   const uniquePaths = [...new Set(allPaths)].sort();
