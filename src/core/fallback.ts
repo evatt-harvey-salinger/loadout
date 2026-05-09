@@ -13,8 +13,9 @@ export const FALLBACK_SCRIPT = `#!/bin/sh
 set -e
 cd "$(dirname "$0")/.."
 
-# Skip if already synced
+# Skip if already synced (loadouts ran) or fallback already applied
 [ -f ".loadouts/.state.json" ] && exit 0
+[ -f ".loadouts/.fallback-applied" ] && exit 0
 
 # If loadouts is available, use it
 if command -v loadouts >/dev/null 2>&1; then
@@ -30,11 +31,15 @@ echo "  Install with: npm install -g loadouts"
 echo ""
 echo "  Applying fallback configuration..."
 
-# Instructions
-if [ -f ".loadouts/AGENTS.md" ] && [ ! -e "AGENTS.md" ]; then
-  ln -s .loadouts/AGENTS.md AGENTS.md
+# Instructions — link the first AGENTS.*.md found in .loadouts/instructions/
+for instr in .loadouts/instructions/AGENTS.*.md; do
+  [ -f "$instr" ] || continue
+  # Remove broken symlink from a previous run before re-linking
+  if [ -L "AGENTS.md" ] && [ ! -e "AGENTS.md" ]; then rm "AGENTS.md"; fi
+  [ -e "AGENTS.md" ] || ln -s "$instr" AGENTS.md
   echo "  ✓ AGENTS.md"
-fi
+  break
+done
 if [ ! -e "CLAUDE.md" ]; then
   cat > CLAUDE.md << 'CLAUDE_EOF'
 # Claude Code Instructions
@@ -56,6 +61,7 @@ for rule in .loadouts/rules/*.md; do
     ext="md"
     [ "$tooldir" = ".cursor" ] && ext="mdc"
     target="$tooldir/rules/$stem.$ext"
+    if [ -L "$target" ] && [ ! -e "$target" ]; then rm "$target"; fi
     [ -e "$target" ] || ln -s "../../$rule" "$target"
   done
   echo "  ✓ rules/$stem.md"
@@ -73,11 +79,15 @@ for skilldir in .loadouts/skills/*/; do
       target="$tooldir/skills/$skillname/$relpath"
       depth=$(echo "$target" | tr -cd '/' | wc -c)
       updirs=$(printf '../%.0s' $(seq 1 $depth))
+      if [ -L "$target" ] && [ ! -e "$target" ]; then rm "$target"; fi
       [ -e "$target" ] || ln -s "\${updirs}$file" "$target"
     done
   done
   echo "  ✓ skills/$skillname"
 done
+
+# Mark fallback as complete so we don't run again on every cd
+touch .loadouts/.fallback-applied
 
 echo ""
 echo "  Run 'loadouts sync' after installing for full configuration."
@@ -89,7 +99,7 @@ exec .loadouts/sync-fallback.sh 2>/dev/null || true
 `;
 
 export const ENVRC_LINES = `
-# Auto-sync loadout on directory entry
+# Auto-sync loadouts on directory entry
 [ -x .loadouts/sync-fallback.sh ] && .loadouts/sync-fallback.sh
 `;
 

@@ -368,6 +368,12 @@ export async function applyPlan(
 
   saveState(loadout.rootPath, newState);
 
+  // Clean up fallback marker now that real state exists
+  const fallbackMarker = path.join(loadout.rootPath, ".fallback-applied");
+  if (fileExists(fallbackMarker)) {
+    removeFile(fallbackMarker);
+  }
+
   // Update .gitignore with managed paths (project scope only)
   if (scope === "project") {
     const managedPaths = plan.outputs.map((o) => o.spec.targetPath);
@@ -506,6 +512,12 @@ export async function applyMultiPlan(
   };
 
   saveState(loadoutRoot, newState);
+
+  // Clean up fallback marker now that real state exists
+  const fallbackMarker = path.join(loadoutRoot, ".fallback-applied");
+  if (fileExists(fallbackMarker)) {
+    removeFile(fallbackMarker);
+  }
 
   // Update .gitignore with managed paths (project scope only)
   if (scope === "project") {
