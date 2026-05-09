@@ -1,1 +1,1 @@
-.loadout/instructions/AGENTS.base.md
+.loadouts/instructions/AGENTS.base.md

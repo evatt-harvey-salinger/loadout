@@ -207,7 +207,25 @@ export interface GroupedArtifact {
 }
 
 /**
- * Group outputs by source artifact (sourcePath).
+ * Get a canonical grouping key for an artifact.
+ * For dir-layout kinds (skills), collapses individual files to the parent directory.
+ * This ensures skills/foo/SKILL.md and skills/foo/references/bar.md group together.
+ */
+function getGroupingKey(sourcePath: string, kind: string): string {
+  const relativePath = extractRelativePath(sourcePath);
+  
+  // For skills, extract just the skill directory path
+  if (kind === "skill") {
+    const match = relativePath.match(/^skills\/([^/]+)/);
+    if (match) return `skill:${match[1]}`;
+  }
+  
+  // For other kinds, use the full source path
+  return sourcePath;
+}
+
+/**
+ * Group outputs by source artifact, collapsing dir-layout items (skills).
  * Returns artifacts sorted by kind priority then name.
  */
 export function groupOutputsByArtifact(
@@ -216,15 +234,15 @@ export function groupOutputsByArtifact(
     change: ChangeType;
   }>
 ): GroupedArtifact[] {
-  const bySource = new Map<string, GroupedArtifact>();
+  const byKey = new Map<string, GroupedArtifact>();
 
   for (const { spec, change } of outputs) {
-    const key = spec.sourcePath;
+    const key = getGroupingKey(spec.sourcePath, spec.kind);
     
-    if (!bySource.has(key)) {
+    if (!byKey.has(key)) {
       const relativePath = extractRelativePath(spec.sourcePath);
       
-      bySource.set(key, {
+      byKey.set(key, {
         kind: spec.kind,
         name: getArtifactName(relativePath, spec.kind),
         sourcePath: spec.sourcePath,
@@ -233,20 +251,25 @@ export function groupOutputsByArtifact(
       });
     }
 
-    const artifact = bySource.get(key)!;
-    artifact.outputs.set(spec.tool, {
-      tool: spec.tool,
-      targetPath: spec.targetPath,
-      mode: spec.mode,
-      change,
-    });
+    const artifact = byKey.get(key)!;
+    
+    // For collapsed artifacts, merge tool outputs (keep worst change per tool)
+    const existing = artifact.outputs.get(spec.tool);
+    if (!existing || worstChange(existing.change, change) === change) {
+      artifact.outputs.set(spec.tool, {
+        tool: spec.tool,
+        targetPath: spec.targetPath,
+        mode: spec.mode,
+        change,
+      });
+    }
 
     // Update overall change to worst status
     artifact.overallChange = worstChange(artifact.overallChange, change);
   }
 
   // Convert to array and sort
-  const artifacts = Array.from(bySource.values());
+  const artifacts = Array.from(byKey.values());
   return sortArtifacts(artifacts);
 }
 

@@ -44,8 +44,14 @@ export function extractRelativePath(sourcePath: string): string {
     return parts.slice(bundledIdx + 1).join("/");
   }
   
-  // Check for .loadouts directory
-  const loadoutIdx = parts.findIndex(p => p === ".loadouts");
+  // Check for .loadouts directory (project scope)
+  const dotLoadoutIdx = parts.findIndex(p => p === ".loadouts");
+  if (dotLoadoutIdx >= 0) {
+    return parts.slice(dotLoadoutIdx + 1).join("/");
+  }
+  
+  // Check for loadouts directory (global scope: ~/.config/loadouts)
+  const loadoutIdx = parts.findIndex(p => p === "loadouts");
   if (loadoutIdx >= 0) {
     return parts.slice(loadoutIdx + 1).join("/");
   }
