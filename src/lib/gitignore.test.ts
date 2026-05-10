@@ -11,15 +11,11 @@ import {
   removeArtifactFromGitignore,
 } from "./gitignore.js";
 import { registry } from "../core/registry.js";
+import { createPluginAPI } from "../core/plugin.js";
 import { registerBuiltins } from "../builtins/index.js";
 
 // Register built-in kinds and tools for tests
-registerBuiltins({ 
-  registerKind: (k) => registry.registerKind(k),
-  registerTool: (t) => registry.registerTool(t),
-  registerTransform: (n, f) => registry.registerTransform(n, f),
-  registerHook: () => {},
-});
+registerBuiltins(createPluginAPI(registry));
 
 describe("gitignore", () => {
   let tmpDir: string;
