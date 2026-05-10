@@ -182,6 +182,7 @@ function renderTable(infos: LoadoutInfo[], sourceChain: string[]): void {
 }
 
 export const listCommand = new Command("list")
+  .alias("ls")
   .description("List available loadouts")
   .option(...SCOPE_FLAGS.local)
   .option(...SCOPE_FLAGS.global)

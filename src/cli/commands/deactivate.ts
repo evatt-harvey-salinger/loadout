@@ -27,6 +27,7 @@ interface DeactivateOptions extends ScopeFlags {
 }
 
 export const deactivateCommand = new Command("deactivate")
+  .alias("d")
   .description("Deactivate loadout(s) (remove from active set)")
   .argument("<names...>", "Loadout names to deactivate")
   .option(...SCOPE_FLAGS.local)

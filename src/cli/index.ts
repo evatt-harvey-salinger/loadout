@@ -8,6 +8,7 @@
  */
 
 import { Command, Help } from "commander";
+import chalk from "chalk";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -99,17 +100,30 @@ for (const group of COMMAND_GROUPS) {
 // ---------------------------------------------------------------------------
 cli.configureHelp({
   formatHelp(cmd: Command, helper: Help): string {
-    const termWidth = helper.padWidth(cmd, helper);
     const helpWidth = (helper.helpWidth as number) || 80;
     const indent = 2;
     const sep = 2;
 
-    function formatItem(term: string, description: string): string {
-      if (description) {
-        const fullText = `${term.padEnd(termWidth + sep)}${description}`;
-        return helper.wrap(fullText, helpWidth - indent, termWidth + sep);
+    // Parse command term into parts: { term, alias, args }
+    function parseTerm(rawTerm: string): { term: string; alias: string; args: string } {
+      const clean = rawTerm.replace(/\s*\[options\]/, "");
+      const match = clean.match(/^([a-z-]+)(?:\|([a-z]+))?(.*)?$/i);
+      if (match) {
+        return { term: match[1], alias: match[2] || "", args: match[3] || "" };
       }
-      return term;
+      return { term: clean, alias: "", args: "" };
+    }
+
+    // Calculate column widths for a group
+    function calcWidths(cmds: Command[]): { termWidth: number; aliasWidth: number } {
+      let termWidth = 0;
+      let aliasWidth = 0;
+      for (const c of cmds) {
+        const { term, alias, args } = parseTerm(helper.subcommandTerm(c));
+        termWidth = Math.max(termWidth, (term + args).length);
+        aliasWidth = Math.max(aliasWidth, alias.length);
+      }
+      return { termWidth, aliasWidth };
     }
 
     function formatList(items: string[]): string {
@@ -121,33 +135,42 @@ cli.configureHelp({
     const desc = helper.commandDescription(cmd);
     if (desc) output = output.concat([helper.wrap(desc, helpWidth, 0), ""]);
 
-    // Grouped commands — build a lookup by command name for membership
-    const allGrouped = new Set(
-      COMMAND_GROUPS.flatMap((g) => g.commands.map((c) => c.name()))
-    );
     const visibleCmds = helper.visibleCommands(cmd);
 
     for (const group of COMMAND_GROUPS) {
       const groupNames = new Set(group.commands.map((c) => c.name()));
-      const items = visibleCmds
-        .filter((c) => groupNames.has(c.name()))
-        .map((c) =>
-          formatItem(
-            helper.subcommandTerm(c).replace(/\s*\[options\]/, ""),
-            helper.subcommandDescription(c)
-          )
-        );
-      if (items.length > 0) {
-        output = output.concat([`${group.title}:`, formatList(items), ""]);
-      }
+      const groupCmds = visibleCmds.filter((c) => groupNames.has(c.name()));
+
+      if (groupCmds.length === 0) continue;
+
+      const { termWidth, aliasWidth } = calcWidths(groupCmds);
+
+      const items = groupCmds.map((c) => {
+        const { term, alias, args } = parseTerm(helper.subcommandTerm(c));
+        const termPart = (term + args).padEnd(termWidth);
+        const aliasPart = alias
+          ? chalk.dim(alias.padStart(aliasWidth))
+          : " ".repeat(aliasWidth);
+        const descPart = helper.subcommandDescription(c);
+        const fullText = `${termPart}  ${aliasPart}  ${descPart}`;
+        const wrapIndent = termWidth + sep + aliasWidth + sep;
+        return helper.wrap(fullText, helpWidth - indent, wrapIndent);
+      });
+
+      output = output.concat([`${group.title}:`, formatList(items), ""]);
     }
 
-
-
     // Options (at the bottom — commands are the primary interface)
-    const optionList = helper.visibleOptions(cmd).map((opt) =>
-      formatItem(helper.optionTerm(opt), helper.optionDescription(opt))
-    );
+    const termWidth = helper.padWidth(cmd, helper);
+    const optionList = helper.visibleOptions(cmd).map((opt) => {
+      const term = helper.optionTerm(opt);
+      const desc = helper.optionDescription(opt);
+      if (desc) {
+        const fullText = `${term.padEnd(termWidth + sep)}${desc}`;
+        return helper.wrap(fullText, helpWidth - indent, termWidth + sep);
+      }
+      return term;
+    });
     if (optionList.length > 0) {
       output = output.concat(["Options:", formatList(optionList), ""]);
     }

@@ -583,6 +583,7 @@ interface StatusOptions extends ScopeFlags {
 }
 
 export const statusCommand = new Command("status")
+  .alias("s")
   .description("Show loadout status and drift")
   .option(...SCOPE_FLAGS.local)
   .option(...SCOPE_FLAGS.global)

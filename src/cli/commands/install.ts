@@ -34,6 +34,7 @@ import {
 import { parseLoadoutDefinition, sanitizeRuleFile } from "../../core/config.js";
 import { loadState } from "../../core/manifest.js";
 import { log, heading } from "../../lib/output.js";
+import { addArtifactToGitignore } from "../../lib/gitignore.js";
 import { initProjectLoadout } from "./init.js";
 
 
@@ -651,6 +652,11 @@ export async function runInstall(
 
   if (successfulArtifacts.length > 0) {
     await addToLoadout(successfulArtifacts, loadoutPath, targetLoadout);
+
+    // Update .gitignore with render target paths for each imported artifact
+    for (const artifact of successfulArtifacts) {
+      addArtifactToGitignore(projectRoot, artifact.kind, artifact.name, "project");
+    }
   }
 
   // Display results

@@ -8,7 +8,11 @@
  */
 
 import * as path from "node:path";
+import * as os from "node:os";
 import { fileExists, readFile, writeFile } from "./fs.js";
+import { registry } from "../core/registry.js";
+import { expandTemplate, type TemplateVars } from "../core/template.js";
+import type { Scope } from "../core/types.js";
 
 const START_MARKER = "# <loadouts>";
 const END_MARKER = "# </loadouts>";
@@ -115,4 +119,104 @@ export function getManagedPaths(projectRoot: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"));
+}
+
+/**
+ * Compute the gitignore paths for an artifact across all tools.
+ * 
+ * For dir-layout kinds (skills), returns directory paths with trailing slash.
+ * For file-layout kinds (rules), returns individual file paths.
+ */
+export function computeArtifactGitignorePaths(
+  kindId: string,
+  artifactName: string,
+  scope: Scope = "project"
+): string[] {
+  const kind = registry.getKind(kindId);
+  if (!kind) return [];
+
+  const paths: string[] = [];
+
+  for (const tool of registry.allTools()) {
+    const mapping = registry.resolveMapping(tool.name, kindId);
+    if (!mapping) continue;
+
+    // Build template variables
+    // For dir-layout kinds, {name} and {stem} are the directory name
+    // For file-layout kinds, we need to include the extension
+    const ext = mapping.ext ?? (kind.layout === "file" ? ".md" : "");
+    
+    const vars: TemplateVars = {
+      base: tool.basePath[scope],
+      home: os.homedir(),
+      stem: artifactName,
+      ext,
+      name: artifactName,
+      relative: `${kindId}s/${artifactName}${ext}`,
+      kind: kindId,
+    };
+
+    // Expand the path template
+    const pathTemplate = typeof mapping.path === "string" 
+      ? mapping.path 
+      : mapping.path[scope];
+    
+    try {
+      let targetPath = expandTemplate(pathTemplate, scope, vars);
+      
+      // For dir-layout kinds, ensure trailing slash for directory pattern
+      if (kind.layout === "dir" && !targetPath.endsWith("/")) {
+        targetPath += "/";
+      }
+      
+      // Only include project-relative paths (skip global/absolute paths)
+      if (!path.isAbsolute(targetPath)) {
+        paths.push(targetPath);
+      }
+    } catch {
+      // Skip if template expansion fails (e.g., missing variables)
+      continue;
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Add gitignore paths for a newly created artifact.
+ * Merges with existing managed paths rather than replacing.
+ */
+export function addArtifactToGitignore(
+  projectRoot: string,
+  kindId: string,
+  artifactName: string,
+  scope: Scope = "project"
+): void {
+  const newPaths = computeArtifactGitignorePaths(kindId, artifactName, scope);
+  if (newPaths.length === 0) return;
+
+  const existingPaths = getManagedPaths(projectRoot);
+  const mergedPaths = [...new Set([...existingPaths, ...newPaths])];
+  
+  updateGitignore(projectRoot, mergedPaths);
+}
+
+/**
+ * Remove gitignore paths for a deleted artifact.
+ */
+export function removeArtifactFromGitignore(
+  projectRoot: string,
+  kindId: string,
+  artifactName: string,
+  scope: Scope = "project"
+): void {
+  const pathsToRemove = new Set(
+    computeArtifactGitignorePaths(kindId, artifactName, scope)
+  );
+  if (pathsToRemove.size === 0) return;
+
+  const existingPaths = getManagedPaths(projectRoot);
+  const filteredPaths = existingPaths.filter((p) => !pathsToRemove.has(p));
+  
+  updateGitignore(projectRoot, filteredPaths);
 }

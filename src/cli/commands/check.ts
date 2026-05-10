@@ -123,6 +123,7 @@ async function checkRoot(
 }
 
 export const checkCommand = new Command("check")
+  .alias("c")
   .description("Validate a loadout")
   .option(...SCOPE_FLAGS.local)
   .option(...SCOPE_FLAGS.global)

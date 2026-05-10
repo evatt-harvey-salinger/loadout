@@ -194,11 +194,18 @@ function resolveExpandedOutputSpec(
     mapping.mode ??
     (mapping.generate ? "generate" : mapping.transform ? "copy" : "symlink");
 
+  // For dir-layout kinds, use the base directory path with trailing slash for gitignore
+  // This ensures all files within the directory are ignored with a single entry
+  const gitignorePath = path.isAbsolute(baseTargetPath) 
+    ? undefined  // Don't gitignore global paths
+    : baseTargetPath + "/";
+
   return {
     tool: toolName,
     kind: expandedItem.kind,
     sourcePath: expandedItem.sourcePath,
     targetPath,
+    gitignorePath,
     mode,
   };
 }
@@ -280,6 +287,20 @@ function resolveTargetPath(targetPath: string, projectRoot: string): string {
   return path.isAbsolute(targetPath)
     ? targetPath
     : path.join(projectRoot, targetPath);
+}
+
+/**
+ * Compute unique gitignore paths from plan outputs.
+ * Uses gitignorePath (for dir-layout kinds) or targetPath (for file-layout).
+ */
+function computeGitignorePaths(
+  outputs: Array<{ spec: OutputSpec }>
+): string[] {
+  const paths = new Set<string>();
+  for (const { spec } of outputs) {
+    paths.add(spec.gitignorePath ?? spec.targetPath);
+  }
+  return Array.from(paths);
 }
 
 /**
@@ -375,8 +396,9 @@ export async function applyPlan(
   }
 
   // Update .gitignore with managed paths (project scope only)
+  // Uses directory paths for dir-layout kinds instead of individual files
   if (scope === "project") {
-    const managedPaths = plan.outputs.map((o) => o.spec.targetPath);
+    const managedPaths = computeGitignorePaths(plan.outputs);
     updateGitignore(projectRoot, managedPaths);
   }
 }
@@ -520,8 +542,11 @@ export async function applyMultiPlan(
   }
 
   // Update .gitignore with managed paths (project scope only)
+  // Uses directory paths for dir-layout kinds instead of individual files
   if (scope === "project") {
-    const managedPaths = mergedOutputs.map((o) => o.output.spec.targetPath);
+    const managedPaths = computeGitignorePaths(
+      mergedOutputs.map((o) => ({ spec: o.output.spec }))
+    );
     updateGitignore(projectRoot, managedPaths);
   }
 
