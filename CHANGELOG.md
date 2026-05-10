@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-05-10
+
+### Added
+- Update gitignore at artifact creation time (`skill add`, `rule add`, `install`)
+- Use directory patterns for skills in gitignore (e.g., `.cursor/skills/foo/`)
+- Command aliases: `a` (activate), `d` (deactivate), `c` (check), etc.
+
+### Changed
+- Collapse dir-layout artifacts (skills) to single row per artifact in sync output
+
+### Fixed
+- Fallback script uses marker file to avoid re-running on each shell
+- Fallback script cleans up broken symlinks before creating new ones
+- Fallback script uses correct path for AGENTS.md instruction
+
 ## [0.1.11] - 2026-05-08
 
 ### Changed
