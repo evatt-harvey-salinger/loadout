@@ -372,6 +372,7 @@ export async function executeInfo(
 }
 
 export const infoCommand = new Command("info")
+  .alias("i")
   .description("Show loadout information")
   .argument("[name]", "Loadout name (uses active loadouts if not specified)")
   .option(...SCOPE_FLAGS.local)

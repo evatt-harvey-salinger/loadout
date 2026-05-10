@@ -69,6 +69,12 @@ export interface OutputSpec {
   /** Relative path from project root, or absolute for global scope outputs. */
   targetPath: string;
   mode: OutputMode;
+  /**
+   * Path to use for .gitignore. For dir-layout kinds, this is the base
+   * directory (with trailing slash) rather than individual files.
+   * Falls back to targetPath if not set.
+   */
+  gitignorePath?: string;
 }
 
 // Rendered content + hash for one output spec

@@ -32,6 +32,7 @@ import { parseLoadoutDefinition } from "../../core/config.js";
 import { inProject, hasGlobal } from "../../core/scope.js";
 import { log, heading } from "../../lib/output.js";
 import { openInEditor } from "../../lib/editor.js";
+import { addArtifactToGitignore, removeArtifactFromGitignore } from "../../lib/gitignore.js";
 import type { Scope } from "../../core/types.js";
 
 const SKILLS_DIR = "skills";
@@ -135,6 +136,12 @@ Include examples if helpful.
 `;
 
     writeFile(skillMdPath, content);
+
+    // Update .gitignore with render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      addArtifactToGitignore(projectRoot, "skill", name, scope);
+    }
 
     const scopeLabel = scope === "global" ? "global" : "project";
     log.success(`Created ${scopeLabel} skill: ${name}`);
@@ -308,6 +315,13 @@ skillCommand
     }
 
     removeDir(skillPath);
+
+    // Update .gitignore to remove render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      removeArtifactFromGitignore(projectRoot, "skill", name, scope);
+    }
+
     log.success(`Removed skill: ${name} (${scope})`);
   });
 
@@ -440,6 +454,12 @@ skillCommand
       } catch (err) {
         log.warn(`Could not update loadout: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+
+    // Update .gitignore with render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      addArtifactToGitignore(projectRoot, "skill", name, scope);
     }
 
     // Remove original if not --keep (and not a builtin)

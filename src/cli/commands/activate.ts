@@ -27,6 +27,7 @@ interface ActivateOptions extends ScopeFlags {
 }
 
 export const activateCommand = new Command("activate")
+  .alias("a")
   .description("Activate loadout(s) (add to active set)")
   .argument("<names...>", "Loadout names to activate")
   .option(...SCOPE_FLAGS.local)

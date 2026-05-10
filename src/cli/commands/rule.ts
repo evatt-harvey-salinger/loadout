@@ -28,6 +28,7 @@ import { parseFrontmatter, parseLoadoutDefinition, sanitizeRuleFrontmatter, sani
 import { inProject, hasGlobal, type ScopeFlags } from "../../core/scope.js";
 import { log, heading, list } from "../../lib/output.js";
 import { openInEditor } from "../../lib/editor.js";
+import { addArtifactToGitignore, removeArtifactFromGitignore } from "../../lib/gitignore.js";
 import type { Scope } from "../../core/types.js";
 
 const RULES_DIR = "rules";
@@ -123,6 +124,12 @@ ruleCommand
     const content = serializeFrontmatter(frontmatter, body);
 
     writeFile(rulePath, content);
+
+    // Update .gitignore with render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      addArtifactToGitignore(projectRoot, "rule", name, scope);
+    }
 
     const scopeLabel = scope === "global" ? "global" : "project";
     log.success(`Created ${scopeLabel} rule: ${name}`);
@@ -286,6 +293,13 @@ ruleCommand
     }
 
     removeFile(rulePath);
+
+    // Update .gitignore to remove render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      removeArtifactFromGitignore(projectRoot, "rule", name, scope);
+    }
+
     log.success(`Removed rule: ${name} (${scope})`);
   });
 
@@ -356,6 +370,12 @@ ruleCommand
       } catch (err) {
         log.warn(`Could not update loadout: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+
+    // Update .gitignore with render target paths (project scope only)
+    if (scope === "project") {
+      const projectRoot = path.dirname(rootPath);
+      addArtifactToGitignore(projectRoot, "rule", name, scope);
     }
 
     // Remove original if not --keep

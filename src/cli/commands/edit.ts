@@ -34,6 +34,7 @@ function findLoadoutPath(loadoutRoot: string, name: string): string | null {
 }
 
 export const editCommand = new Command("edit")
+  .alias("e")
   .description("Open a loadout definition in $EDITOR")
   .argument("<name>", "Loadout name to edit")
   .option(...SCOPE_FLAGS.local)

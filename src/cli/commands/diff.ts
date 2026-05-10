@@ -128,6 +128,7 @@ export async function executeDiff(
 }
 
 export const diffCommand = new Command("diff")
+  .alias("df")
   .description("Show what would change if loadout were applied")
   .argument("[name]", "Loadout name (uses default if not specified)")
   .option(...SCOPE_FLAGS.local)
