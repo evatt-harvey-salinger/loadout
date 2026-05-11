@@ -26,7 +26,7 @@ import {
   hashContent,
   walkDir,
 } from "../lib/fs.js";
-import { updateGitignore, removeGitignoreSection } from "../lib/gitignore.js";
+
 import { registry } from "./registry.js";
 import { expandTemplate, type TemplateVars } from "./template.js";
 import { isUnmanagedCollision, saveState, loadState } from "./manifest.js";
@@ -194,18 +194,11 @@ function resolveExpandedOutputSpec(
     mapping.mode ??
     (mapping.generate ? "generate" : mapping.transform ? "copy" : "symlink");
 
-  // For dir-layout kinds, use the base directory path with trailing slash for gitignore
-  // This ensures all files within the directory are ignored with a single entry
-  const gitignorePath = path.isAbsolute(baseTargetPath) 
-    ? undefined  // Don't gitignore global paths
-    : baseTargetPath + "/";
-
   return {
     tool: toolName,
     kind: expandedItem.kind,
     sourcePath: expandedItem.sourcePath,
     targetPath,
-    gitignorePath,
     mode,
   };
 }
@@ -289,19 +282,6 @@ function resolveTargetPath(targetPath: string, projectRoot: string): string {
     : path.join(projectRoot, targetPath);
 }
 
-/**
- * Compute unique gitignore paths from plan outputs.
- * Uses gitignorePath (for dir-layout kinds) or targetPath (for file-layout).
- */
-function computeGitignorePaths(
-  outputs: Array<{ spec: OutputSpec }>
-): string[] {
-  const paths = new Set<string>();
-  for (const { spec } of outputs) {
-    paths.add(spec.gitignorePath ?? spec.targetPath);
-  }
-  return Array.from(paths);
-}
 
 /**
  * Apply a render plan to disk and save state.
@@ -395,12 +375,6 @@ export async function applyPlan(
     removeFile(fallbackMarker);
   }
 
-  // Update .gitignore with managed paths (project scope only)
-  // Uses directory paths for dir-layout kinds instead of individual files
-  if (scope === "project") {
-    const managedPaths = computeGitignorePaths(plan.outputs);
-    updateGitignore(projectRoot, managedPaths);
-  }
 }
 
 export interface ApplyResult {
@@ -541,15 +515,6 @@ export async function applyMultiPlan(
     removeFile(fallbackMarker);
   }
 
-  // Update .gitignore with managed paths (project scope only)
-  // Uses directory paths for dir-layout kinds instead of individual files
-  if (scope === "project") {
-    const managedPaths = computeGitignorePaths(
-      mergedOutputs.map((o) => ({ spec: o.output.spec }))
-    );
-    updateGitignore(projectRoot, managedPaths);
-  }
-
   return {
     totalOutputs: mergedOutputs.length,
     byTool,
@@ -564,7 +529,6 @@ export async function applyMultiPlan(
 /**
  * Remove all managed outputs recorded in the state file.
  * Does NOT clear the state file — callers decide whether to call clearState().
- * Also removes the loadout-managed section from .gitignore (project scope only).
  */
 export async function removeManaged(
   loadoutRoot: string,
@@ -610,11 +574,6 @@ export async function removeManaged(
     } catch {
       // Ignore — dir may not exist or may be unremovable
     }
-  }
-
-  // Clean up .gitignore (project scope only)
-  if (scope === "project") {
-    removeGitignoreSection(projectRoot);
   }
 
   return { removed, missing };

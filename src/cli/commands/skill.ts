@@ -32,7 +32,8 @@ import { parseLoadoutDefinition } from "../../core/config.js";
 import { inProject, hasGlobal } from "../../core/scope.js";
 import { log, heading } from "../../lib/output.js";
 import { openInEditor } from "../../lib/editor.js";
-import { addArtifactToGitignore, removeArtifactFromGitignore } from "../../lib/gitignore.js";
+import { rebuildAllGitignores } from "../../lib/gitignore.js";
+import * as os from "node:os";
 import type { Scope } from "../../core/types.js";
 
 const SKILLS_DIR = "skills";
@@ -137,11 +138,9 @@ Include examples if helpful.
 
     writeFile(skillMdPath, content);
 
-    // Update .gitignore with render target paths (project scope only)
-    if (scope === "project") {
-      const projectRoot = path.dirname(rootPath);
-      addArtifactToGitignore(projectRoot, "skill", name, scope);
-    }
+    // Rebuild per-target .gitignore files for all existing artifacts
+    const projectRoot = scope === "project" ? path.dirname(rootPath) : os.homedir();
+    rebuildAllGitignores(rootPath, projectRoot, scope);
 
     const scopeLabel = scope === "global" ? "global" : "project";
     log.success(`Created ${scopeLabel} skill: ${name}`);
@@ -316,11 +315,9 @@ skillCommand
 
     removeDir(skillPath);
 
-    // Update .gitignore to remove render target paths (project scope only)
-    if (scope === "project") {
-      const projectRoot = path.dirname(rootPath);
-      removeArtifactFromGitignore(projectRoot, "skill", name, scope);
-    }
+    // Rebuild per-target .gitignore files reflecting the deletion
+    const projectRoot = scope === "project" ? path.dirname(rootPath) : os.homedir();
+    rebuildAllGitignores(rootPath, projectRoot, scope);
 
     log.success(`Removed skill: ${name} (${scope})`);
   });
@@ -456,11 +453,9 @@ skillCommand
       }
     }
 
-    // Update .gitignore with render target paths (project scope only)
-    if (scope === "project") {
-      const projectRoot = path.dirname(rootPath);
-      addArtifactToGitignore(projectRoot, "skill", name, scope);
-    }
+    // Rebuild per-target .gitignore files for all existing artifacts
+    const projectRoot = scope === "project" ? path.dirname(rootPath) : os.homedir();
+    rebuildAllGitignores(rootPath, projectRoot, scope);
 
     // Remove original if not --keep (and not a builtin)
     if (!keepOriginal) {
