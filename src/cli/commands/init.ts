@@ -19,6 +19,7 @@ import { getContext, getGlobalConfigPath } from "../../core/discovery.js";
 import { loadResolvedLoadout } from "../../core/resolve.js";
 import { planRender, applyPlan } from "../../core/render.js";
 import { log, heading, list } from "../../lib/output.js";
+import { updateLoadoutsGitignore } from "../../lib/gitignore.js";
 import type { RootConfig, Scope } from "../../core/types.js";
 import { discoverImportableArtifacts } from "../../core/import-discovery.js";
 import { runInstall } from "./install.js";
@@ -107,6 +108,9 @@ Add your project-specific guidelines here.
       writeFile(envrcPath, ENVRC_LINES.trim() + "\n");
     }
   }
+
+  // Write .loadouts/.gitignore to cover state files
+  updateLoadoutsGitignore(loadoutPath);
 
   const displayPath = scope === "global" ? "~/.config/loadouts" : ".loadouts/";
   heading(`Initialized ${displayPath}`);
@@ -272,6 +276,9 @@ export async function initProjectLoadout(projectRoot: string): Promise<string> {
   } else {
     writeFile(envrcPath, ENVRC_LINES.trim() + "\n");
   }
+
+  // Write .loadouts/.gitignore to cover state files
+  updateLoadoutsGitignore(loadoutPath);
 
   heading("Initialized .loadouts/");
   log.success("Created .loadouts/loadouts.yaml");

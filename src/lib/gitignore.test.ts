@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { 
-  updateGitignore, 
-  getManagedPaths, 
-  removeGitignoreSection,
+import {
+  updateTargetGitignore,
+  updateLoadoutsGitignore,
+  getManagedPathsFromTarget,
   computeArtifactGitignorePaths,
-  addArtifactToGitignore,
-  removeArtifactFromGitignore,
+  rebuildAllGitignores,
+  removeLegacyRootGitignoreSection,
+  getManagedPaths,
 } from "./gitignore.js";
 import { registry } from "../core/registry.js";
 import { createPluginAPI } from "../core/plugin.js";
@@ -28,66 +29,460 @@ describe("gitignore", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe("updateGitignore", () => {
-    it("creates .gitignore with managed section", () => {
-      updateGitignore(tmpDir, [".cursor/rules/test.mdc"]);
+  // ---------------------------------------------------------------------------
+  // updateTargetGitignore
+  // ---------------------------------------------------------------------------
 
-      const content = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf-8");
+  describe("updateTargetGitignore", () => {
+    it("creates .gitignore in target directory", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      updateTargetGitignore(targetDir, ["rules/my-rule.md"]);
+
+      const content = fs.readFileSync(
+        path.join(targetDir, ".gitignore"),
+        "utf-8"
+      );
       expect(content).toContain("# <loadouts>");
-      expect(content).toContain(".cursor/rules/test.mdc");
+      expect(content).toContain("rules/my-rule.md");
       expect(content).toContain("# </loadouts>");
     });
 
-    it("handles directory paths with trailing slashes", () => {
-      updateGitignore(tmpDir, [
-        ".cursor/skills/my-skill/",
-        ".claude/skills/my-skill/",
-      ]);
+    it("creates parent directories if they don't exist", () => {
+      const targetDir = path.join(tmpDir, "nested", ".claude");
+      updateTargetGitignore(targetDir, ["rules/foo.md"]);
 
-      const paths = getManagedPaths(tmpDir);
-      expect(paths).toContain(".cursor/skills/my-skill/");
-      expect(paths).toContain(".claude/skills/my-skill/");
+      expect(
+        fs.existsSync(path.join(targetDir, ".gitignore"))
+      ).toBe(true);
+    });
+
+    it("handles dir-layout paths with trailing slashes", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      updateTargetGitignore(targetDir, ["skills/my-skill/"]);
+
+      const paths = getManagedPathsFromTarget(targetDir);
+      expect(paths).toContain("skills/my-skill/");
     });
 
     it("deduplicates paths", () => {
-      updateGitignore(tmpDir, [
-        ".cursor/skills/a/",
-        ".cursor/skills/a/",
-        ".cursor/skills/b/",
+      const targetDir = path.join(tmpDir, ".claude");
+      updateTargetGitignore(targetDir, [
+        "skills/a/",
+        "skills/a/",
+        "skills/b/",
       ]);
 
-      const paths = getManagedPaths(tmpDir);
-      expect(paths.filter((p) => p === ".cursor/skills/a/")).toHaveLength(1);
-      expect(paths).toContain(".cursor/skills/b/");
+      const paths = getManagedPathsFromTarget(targetDir);
+      expect(paths.filter((p) => p === "skills/a/")).toHaveLength(1);
+      expect(paths).toContain("skills/b/");
     });
 
-    it("preserves existing user content", () => {
-      const userContent = "node_modules/\n*.log\n";
-      fs.writeFileSync(path.join(tmpDir, ".gitignore"), userContent);
+    it("preserves user content outside markers", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(targetDir, ".gitignore"),
+        "*.log\n"
+      );
 
-      updateGitignore(tmpDir, [".cursor/skills/test/"]);
+      updateTargetGitignore(targetDir, ["rules/test.md"]);
 
-      const content = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf-8");
-      expect(content).toContain("node_modules/");
+      const content = fs.readFileSync(
+        path.join(targetDir, ".gitignore"),
+        "utf-8"
+      );
       expect(content).toContain("*.log");
-      expect(content).toContain(".cursor/skills/test/");
+      expect(content).toContain("rules/test.md");
     });
 
     it("updates existing managed section without duplicating", () => {
-      // First update
-      updateGitignore(tmpDir, [".cursor/skills/a/"]);
-      // Second update with different paths
-      updateGitignore(tmpDir, [".cursor/skills/b/"]);
+      const targetDir = path.join(tmpDir, ".claude");
+      updateTargetGitignore(targetDir, ["rules/a.md"]);
+      updateTargetGitignore(targetDir, ["rules/b.md"]);
 
-      const content = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf-8");
+      const content = fs.readFileSync(
+        path.join(targetDir, ".gitignore"),
+        "utf-8"
+      );
       const matches = content.match(/# <loadouts>/g);
       expect(matches).toHaveLength(1);
-      expect(content).not.toContain(".cursor/skills/a/");
-      expect(content).toContain(".cursor/skills/b/");
+      expect(content).not.toContain("rules/a.md");
+      expect(content).toContain("rules/b.md");
+    });
+
+    it("removes managed section when paths array is empty", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(targetDir, ".gitignore"),
+        "*.log\n"
+      );
+      updateTargetGitignore(targetDir, ["rules/a.md"]);
+      updateTargetGitignore(targetDir, []);
+
+      const content = fs.readFileSync(
+        path.join(targetDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).not.toContain("# <loadouts>");
+      expect(content).toContain("*.log");
     });
   });
 
-  describe("getManagedPaths", () => {
+  // ---------------------------------------------------------------------------
+  // updateLoadoutsGitignore
+  // ---------------------------------------------------------------------------
+
+  describe("updateLoadoutsGitignore", () => {
+    it("creates .loadouts/.gitignore with state file entries", () => {
+      updateLoadoutsGitignore(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).toContain(".state.json");
+      expect(content).toContain(".fallback-applied");
+    });
+
+    it("creates .gitignore if missing", () => {
+      updateLoadoutsGitignore(tmpDir);
+      expect(fs.existsSync(path.join(tmpDir, ".gitignore"))).toBe(true);
+    });
+
+    it("uses relative paths (no leading directory component)", () => {
+      updateLoadoutsGitignore(tmpDir);
+      const paths = getManagedPathsFromTarget(tmpDir);
+      expect(paths.every((p) => !p.includes("/"))).toBe(true);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getManagedPathsFromTarget
+  // ---------------------------------------------------------------------------
+
+  describe("getManagedPathsFromTarget", () => {
+    it("returns empty array when no .gitignore", () => {
+      expect(getManagedPathsFromTarget(tmpDir)).toEqual([]);
+    });
+
+    it("returns empty array when no managed section", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, ".gitignore"), "*.log\n");
+      expect(getManagedPathsFromTarget(targetDir)).toEqual([]);
+    });
+
+    it("extracts paths from managed section", () => {
+      const targetDir = path.join(tmpDir, ".claude");
+      updateTargetGitignore(targetDir, [
+        "rules/foo.md",
+        "skills/bar/",
+      ]);
+
+      const paths = getManagedPathsFromTarget(targetDir);
+      expect(paths).toContain("rules/foo.md");
+      expect(paths).toContain("skills/bar/");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // computeArtifactGitignorePaths
+  // ---------------------------------------------------------------------------
+
+  describe("computeArtifactGitignorePaths", () => {
+    it("returns a Map grouped by target base path", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "project");
+      expect(result).toBeInstanceOf(Map);
+      expect(result.size).toBeGreaterThan(0);
+    });
+
+    it("uses relative base paths for project scope", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "project");
+      for (const key of result.keys()) {
+        expect(path.isAbsolute(key)).toBe(false);
+      }
+    });
+
+    it("uses absolute base paths for global scope", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "global");
+      for (const key of result.keys()) {
+        expect(path.isAbsolute(key)).toBe(true);
+      }
+    });
+
+    it("returns paths relative to the target directory (no target prefix)", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "project");
+      for (const paths of result.values()) {
+        for (const p of paths) {
+          // Should not start with the tool directory name (e.g., .claude/)
+          expect(p).not.toMatch(/^\./);
+        }
+      }
+    });
+
+    it("includes rule paths without trailing slash", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "project");
+      for (const paths of result.values()) {
+        for (const p of paths) {
+          expect(p.endsWith("/")).toBe(false);
+        }
+      }
+    });
+
+    it("includes skill paths with trailing slash", () => {
+      const result = computeArtifactGitignorePaths("skill", "my-skill", "project");
+      for (const paths of result.values()) {
+        for (const p of paths) {
+          expect(p.endsWith("/")).toBe(true);
+        }
+      }
+    });
+
+    it("includes entries for claude-code, cursor, and opencode for rules", () => {
+      const result = computeArtifactGitignorePaths("rule", "my-rule", "project");
+      const allPaths = [...result.entries()].flatMap(([base, paths]) =>
+        paths.map((p) => path.join(base, p))
+      );
+      expect(allPaths.some((p) => p.includes(".claude"))).toBe(true);
+      expect(allPaths.some((p) => p.includes(".cursor"))).toBe(true);
+      expect(allPaths.some((p) => p.includes(".opencode"))).toBe(true);
+    });
+
+    it("excludes instruction artifacts that escape the target directory", () => {
+      // Instructions expand to CLAUDE.md / AGENTS.md at the project root,
+      // which is outside .claude/ or .opencode/ — they should be skipped
+      const result = computeArtifactGitignorePaths("instruction", "AGENTS.base", "project");
+      // Either empty or all relative paths should not start with ".."
+      for (const paths of result.values()) {
+        for (const p of paths) {
+          expect(p.startsWith("..")).toBe(false);
+        }
+      }
+    });
+
+    it("returns empty map for unknown kind", () => {
+      const result = computeArtifactGitignorePaths("unknown-kind", "test", "project");
+      expect(result.size).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // rebuildAllGitignores
+  // ---------------------------------------------------------------------------
+
+  describe("rebuildAllGitignores", () => {
+    let loadoutsDir: string;
+
+    beforeEach(() => {
+      loadoutsDir = path.join(tmpDir, ".loadouts");
+      fs.mkdirSync(path.join(loadoutsDir, "rules"), { recursive: true });
+      fs.mkdirSync(path.join(loadoutsDir, "skills"), { recursive: true });
+    });
+
+    it("writes per-target .gitignore files for all rules", () => {
+      fs.writeFileSync(
+        path.join(loadoutsDir, "rules", "my-rule.md"),
+        "---\n---\n# Rule\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      // Should write .claude/.gitignore
+      const claudePaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".claude")
+      );
+      expect(claudePaths).toContain("rules/my-rule.md");
+    });
+
+    it("writes per-target .gitignore files for all skills", () => {
+      fs.mkdirSync(path.join(loadoutsDir, "skills", "my-skill"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "skills", "my-skill", "SKILL.md"),
+        "---\nname: my-skill\n---\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const claudePaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".claude")
+      );
+      expect(claudePaths).toContain("skills/my-skill/");
+    });
+
+    it("handles multiple artifacts across rules and skills", () => {
+      fs.writeFileSync(
+        path.join(loadoutsDir, "rules", "rule-a.md"),
+        "# Rule A\n"
+      );
+      fs.writeFileSync(
+        path.join(loadoutsDir, "rules", "rule-b.md"),
+        "# Rule B\n"
+      );
+      fs.mkdirSync(path.join(loadoutsDir, "skills", "skill-x"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "skills", "skill-x", "SKILL.md"),
+        "---\nname: skill-x\n---\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const claudePaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".claude")
+      );
+      expect(claudePaths).toContain("rules/rule-a.md");
+      expect(claudePaths).toContain("rules/rule-b.md");
+      expect(claudePaths).toContain("skills/skill-x/");
+    });
+
+    it("handles empty loadouts directory without error", () => {
+      expect(() =>
+        rebuildAllGitignores(loadoutsDir, tmpDir, "project")
+      ).not.toThrow();
+    });
+
+    it("each target gets only its own relative paths (no cross-contamination)", () => {
+      fs.writeFileSync(
+        path.join(loadoutsDir, "rules", "my-rule.md"),
+        "# Rule\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const claudePaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".claude")
+      );
+      const cursorPaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".cursor")
+      );
+
+      // Neither should contain the other tool's directory prefix
+      for (const p of claudePaths) {
+        expect(p).not.toContain(".cursor");
+      }
+      for (const p of cursorPaths) {
+        expect(p).not.toContain(".claude");
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // removeLegacyRootGitignoreSection
+  // ---------------------------------------------------------------------------
+
+  describe("removeLegacyRootGitignoreSection", () => {
+    it("removes # <loadouts> section from root .gitignore", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `node_modules/\n\n# <loadouts>\n# Auto-generated by loadouts.\n.claude/rules/foo.md\n# </loadouts>\n`
+      );
+
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).toContain("node_modules/");
+      expect(content).not.toContain("# <loadouts>");
+      expect(content).not.toContain(".claude/rules/foo.md");
+    });
+
+    it("removes # <loadout> (old marker) section from root .gitignore", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `node_modules/\n\n# <loadout>\n# Auto-generated.\n.cursor/rules/bar.mdc\n# </loadout>\n`
+      );
+
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).toContain("node_modules/");
+      expect(content).not.toContain("# <loadout>");
+      expect(content).not.toContain(".cursor/rules/bar.mdc");
+    });
+
+    it("removes both old and new marker sections", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `node_modules/\n\n# <loadout>\nold-path\n# </loadout>\n\n# <loadouts>\nnew-path\n# </loadouts>\n`
+      );
+
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).toContain("node_modules/");
+      expect(content).not.toContain("old-path");
+      expect(content).not.toContain("new-path");
+    });
+
+    it("preserves all user content outside markers", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `*.log\ndist/\n\n# <loadouts>\n.claude/rules/foo.md\n# </loadouts>\n\nbuild/\n`
+      );
+
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content).toContain("*.log");
+      expect(content).toContain("dist/");
+      expect(content).toContain("build/");
+    });
+
+    it("does nothing when .gitignore has no managed section", () => {
+      fs.writeFileSync(path.join(tmpDir, ".gitignore"), "node_modules/\n");
+
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content.trim()).toBe("node_modules/");
+    });
+
+    it("does nothing when .gitignore does not exist", () => {
+      expect(() =>
+        removeLegacyRootGitignoreSection(tmpDir)
+      ).not.toThrow();
+    });
+
+    it("is idempotent — safe to run multiple times", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `node_modules/\n\n# <loadouts>\n.claude/rules/foo.md\n# </loadouts>\n`
+      );
+
+      removeLegacyRootGitignoreSection(tmpDir);
+      removeLegacyRootGitignoreSection(tmpDir);
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, ".gitignore"),
+        "utf-8"
+      );
+      expect(content.trim()).toBe("node_modules/");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getManagedPaths (deprecated — migration detection)
+  // ---------------------------------------------------------------------------
+
+  describe("getManagedPaths (deprecated)", () => {
     it("returns empty array when no .gitignore", () => {
       expect(getManagedPaths(tmpDir)).toEqual([]);
     });
@@ -97,106 +492,13 @@ describe("gitignore", () => {
       expect(getManagedPaths(tmpDir)).toEqual([]);
     });
 
-    it("extracts paths from managed section", () => {
-      updateGitignore(tmpDir, [
-        ".cursor/skills/foo/",
-        ".opencode/rules/bar.md",
-      ]);
-
+    it("detects legacy managed section in root .gitignore", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `# <loadouts>\n# Auto-generated by loadouts.\n.claude/rules/foo.md\n# </loadouts>\n`
+      );
       const paths = getManagedPaths(tmpDir);
-      expect(paths).toContain(".cursor/skills/foo/");
-      expect(paths).toContain(".opencode/rules/bar.md");
-      // Should also include state files
-      expect(paths).toContain(".loadouts/.state.json");
-    });
-  });
-
-  describe("removeGitignoreSection", () => {
-    it("removes managed artifact paths but keeps state files", () => {
-      const userContent = "node_modules/\n";
-      fs.writeFileSync(path.join(tmpDir, ".gitignore"), userContent);
-      updateGitignore(tmpDir, [".cursor/skills/test/"]);
-
-      removeGitignoreSection(tmpDir);
-
-      const content = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf-8");
-      // Artifact paths are removed
-      expect(content).not.toContain(".cursor/skills/test/");
-      // User content is preserved
-      expect(content).toContain("node_modules/");
-      // State files are always kept
-      expect(content).toContain(".loadouts/.state.json");
-    });
-  });
-
-  describe("computeArtifactGitignorePaths", () => {
-    it("computes paths for skills with trailing slashes", () => {
-      const paths = computeArtifactGitignorePaths("skill", "my-skill");
-      
-      // Should include paths for all tools that support skills
-      expect(paths).toContain(".claude/skills/my-skill/");
-      expect(paths).toContain(".cursor/skills/my-skill/");
-      expect(paths).toContain(".opencode/skills/my-skill/");
-      expect(paths).toContain(".pi/skills/my-skill/");
-      
-      // All skill paths should end with trailing slash
-      for (const p of paths) {
-        expect(p.endsWith("/")).toBe(true);
-      }
-    });
-
-    it("computes paths for rules without trailing slashes", () => {
-      const paths = computeArtifactGitignorePaths("rule", "my-rule");
-      
-      // Should include paths for all tools that support rules
-      expect(paths.some(p => p.includes(".claude/rules/"))).toBe(true);
-      expect(paths.some(p => p.includes(".cursor/rules/"))).toBe(true);
-      
-      // Rule paths should not end with trailing slash
-      for (const p of paths) {
-        expect(p.endsWith("/")).toBe(false);
-      }
-    });
-
-    it("returns empty array for unknown kind", () => {
-      const paths = computeArtifactGitignorePaths("unknown-kind", "test");
-      expect(paths).toEqual([]);
-    });
-  });
-
-  describe("addArtifactToGitignore", () => {
-    it("adds artifact paths to gitignore", () => {
-      addArtifactToGitignore(tmpDir, "skill", "test-skill");
-      
-      const paths = getManagedPaths(tmpDir);
-      expect(paths).toContain(".claude/skills/test-skill/");
-      expect(paths).toContain(".cursor/skills/test-skill/");
-    });
-
-    it("merges with existing paths", () => {
-      // Add first artifact
-      addArtifactToGitignore(tmpDir, "skill", "skill-a");
-      // Add second artifact
-      addArtifactToGitignore(tmpDir, "skill", "skill-b");
-      
-      const paths = getManagedPaths(tmpDir);
-      expect(paths).toContain(".claude/skills/skill-a/");
-      expect(paths).toContain(".claude/skills/skill-b/");
-    });
-  });
-
-  describe("removeArtifactFromGitignore", () => {
-    it("removes artifact paths from gitignore", () => {
-      // Add two artifacts
-      addArtifactToGitignore(tmpDir, "skill", "skill-a");
-      addArtifactToGitignore(tmpDir, "skill", "skill-b");
-      
-      // Remove one
-      removeArtifactFromGitignore(tmpDir, "skill", "skill-a");
-      
-      const paths = getManagedPaths(tmpDir);
-      expect(paths).not.toContain(".claude/skills/skill-a/");
-      expect(paths).toContain(".claude/skills/skill-b/");
+      expect(paths).toContain(".claude/rules/foo.md");
     });
   });
 });
