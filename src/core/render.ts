@@ -282,6 +282,44 @@ function resolveTargetPath(targetPath: string, projectRoot: string): string {
     : path.join(projectRoot, targetPath);
 }
 
+function collectParentDirs(
+  targetPaths: string[],
+  projectRoot: string
+): string[] {
+  const dirs = new Set<string>();
+
+  for (const targetPath of targetPaths) {
+    let dir = path.dirname(resolveTargetPath(targetPath, projectRoot));
+    while (dir !== projectRoot && dir !== path.dirname(dir)) {
+      dirs.add(dir);
+      dir = path.dirname(dir);
+    }
+  }
+
+  return [...dirs].sort(
+    (a, b) => b.split(path.sep).length - a.split(path.sep).length
+  );
+}
+
+async function removeEmptyParentDirs(
+  targetPaths: string[],
+  projectRoot: string
+): Promise<void> {
+  if (targetPaths.length === 0) return;
+
+  const dirs = collectParentDirs(targetPaths, projectRoot);
+  const fs = await import("node:fs");
+
+  for (const dir of dirs) {
+    try {
+      if (isSymlink(dir)) continue;
+      if (fs.readdirSync(dir).length === 0) removeDir(dir);
+    } catch {
+      // Ignore — dir may not exist or may be unremovable
+    }
+  }
+}
+
 /**
  * Replace the existing output target with a writable parent directory.
  */
@@ -306,15 +344,19 @@ export async function applyPlan(
 ): Promise<void> {
   // Remove stale managed outputs not included in the new plan
   const existingState = loadState(loadout.rootPath);
+  const removedTargets: string[] = [];
   if (existingState) {
     const newTargets = new Set(plan.outputs.map((o) => o.spec.targetPath));
     for (const entry of existingState.entries) {
       if (!newTargets.has(entry.targetPath)) {
         const fullPath = resolveTargetPath(entry.targetPath, projectRoot);
         removePath(fullPath);
+        removedTargets.push(entry.targetPath);
       }
     }
   }
+
+  await removeEmptyParentDirs(removedTargets, projectRoot);
 
   // Write each planned output
   for (const { spec, item } of plan.outputs) {
@@ -452,6 +494,8 @@ export async function applyMultiPlan(
     }
   }
 
+  await removeEmptyParentDirs(removed, projectRoot);
+
   // Write each merged output
   const byTool = new Map<string, number>();
   for (const { output: { spec, item } } of mergedOutputs) {
@@ -534,29 +578,7 @@ export async function removeManaged(
     }
   }
 
-  // Remove now-empty parent directories
-  const dirs = new Set<string>();
-  for (const entry of state.entries) {
-    let dir = path.dirname(resolveTargetPath(entry.targetPath, projectRoot));
-    while (dir !== projectRoot && dir !== path.dirname(dir)) {
-      dirs.add(dir);
-      dir = path.dirname(dir);
-    }
-  }
-
-  const sortedDirs = [...dirs].sort(
-    (a, b) => b.split(path.sep).length - a.split(path.sep).length
-  );
-
-  const fs = await import("node:fs");
-  for (const dir of sortedDirs) {
-    try {
-      if (isSymlink(dir)) continue;
-      if (fs.readdirSync(dir).length === 0) removeDir(dir);
-    } catch {
-      // Ignore — dir may not exist or may be unremovable
-    }
-  }
+  await removeEmptyParentDirs(state.entries.map((entry) => entry.targetPath), projectRoot);
 
   return { removed, missing };
 }
