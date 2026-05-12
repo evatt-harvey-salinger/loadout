@@ -17,11 +17,11 @@ import {
   writeFile,
   removeFile,
   removeDir,
+  removePath,
   readFile,
   fileExists,
   isDirectory,
   isSymlink,
-  findSymlinkParent,
   ensureDir,
   hashContent,
   walkDir,
@@ -282,6 +282,14 @@ function resolveTargetPath(targetPath: string, projectRoot: string): string {
     : path.join(projectRoot, targetPath);
 }
 
+/**
+ * Replace the existing output target with a writable parent directory.
+ */
+function prepareOutputTarget(targetPath: string): void {
+  removePath(targetPath);
+  ensureDir(path.dirname(targetPath));
+}
+
 
 /**
  * Apply a render plan to disk and save state.
@@ -303,8 +311,7 @@ export async function applyPlan(
     for (const entry of existingState.entries) {
       if (!newTargets.has(entry.targetPath)) {
         const fullPath = resolveTargetPath(entry.targetPath, projectRoot);
-        if (isDirectory(fullPath)) removeDir(fullPath);
-        else removeFile(fullPath);
+        removePath(fullPath);
       }
     }
   }
@@ -313,19 +320,7 @@ export async function applyPlan(
   for (const { spec, item } of plan.outputs) {
     const targetPath = resolveTargetPath(spec.targetPath, projectRoot);
 
-    // Clear whatever was there before (including broken symlinks)
-    if (fileExists(targetPath) || isDirectory(targetPath) || isSymlink(targetPath)) {
-      if (isDirectory(targetPath)) removeDir(targetPath);
-      else removeFile(targetPath);
-    }
-
-    // Remove any symlinked parent directories (external symlinks)
-    const symlinkParent = findSymlinkParent(targetPath);
-    if (symlinkParent) {
-      removeFile(symlinkParent);
-    }
-
-    ensureDir(path.dirname(targetPath));
+    prepareOutputTarget(targetPath);
 
     if (spec.mode === "symlink") {
       createSymlink(spec.sourcePath, targetPath);
@@ -452,8 +447,7 @@ export async function applyMultiPlan(
       if (!newTargets.has(entry.targetPath)) {
         removed.push(entry.targetPath);
         const fullPath = resolveTargetPath(entry.targetPath, projectRoot);
-        if (isDirectory(fullPath)) removeDir(fullPath);
-        else removeFile(fullPath);
+        removePath(fullPath);
       }
     }
   }
@@ -463,19 +457,7 @@ export async function applyMultiPlan(
   for (const { output: { spec, item } } of mergedOutputs) {
     const targetPath = resolveTargetPath(spec.targetPath, projectRoot);
 
-    // Clear whatever was there before
-    if (fileExists(targetPath) || isDirectory(targetPath) || isSymlink(targetPath)) {
-      if (isDirectory(targetPath)) removeDir(targetPath);
-      else removeFile(targetPath);
-    }
-
-    // Remove any symlinked parent directories (external symlinks)
-    const symlinkParent = findSymlinkParent(targetPath);
-    if (symlinkParent) {
-      removeFile(symlinkParent);
-    }
-
-    ensureDir(path.dirname(targetPath));
+    prepareOutputTarget(targetPath);
 
     if (spec.mode === "symlink") {
       createSymlink(spec.sourcePath, targetPath);
@@ -544,9 +526,8 @@ export async function removeManaged(
   for (const entry of state.entries) {
     const fullPath = resolveTargetPath(entry.targetPath, projectRoot);
 
-    if (fileExists(fullPath) || isDirectory(fullPath)) {
-      if (isDirectory(fullPath)) removeDir(fullPath);
-      else removeFile(fullPath);
+    if (fileExists(fullPath) || isDirectory(fullPath) || isSymlink(fullPath)) {
+      removePath(fullPath);
       removed.push(entry.targetPath);
     } else {
       missing.push(entry.targetPath);
@@ -570,6 +551,7 @@ export async function removeManaged(
   const fs = await import("node:fs");
   for (const dir of sortedDirs) {
     try {
+      if (isSymlink(dir)) continue;
       if (fs.readdirSync(dir).length === 0) removeDir(dir);
     } catch {
       // Ignore — dir may not exist or may be unremovable
