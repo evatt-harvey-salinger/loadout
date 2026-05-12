@@ -5,6 +5,7 @@
  * loadout name. Scope is indicated subtly with symbols:
  *   • global (dim)
  *   ◦ local (cyan)
+ *   ◆ bundled (blue)
  *   →name source (yellow)
  *
  * Scope flags:
@@ -22,8 +23,8 @@ import {
   SCOPE_FLAGS,
   type ScopeFlags,
 } from "../../core/scope.js";
-import { getContext } from "../../core/discovery.js";
-import { loadResolvedLoadout } from "../../core/resolve.js";
+import { getContext, findLoadoutInCatalog } from "../../core/discovery.js";
+import { loadResolvedLoadout, resolveLoadout } from "../../core/resolve.js";
 import { loadState } from "../../core/manifest.js";
 import { log, heading } from "../../lib/output.js";
 import {
@@ -46,6 +47,7 @@ import {
 } from "../../lib/loadout-column.js";
 import type { CommandContext, ResolvedItem, Tool, LoadoutRoot } from "../../core/types.js";
 import { registry } from "../../core/registry.js";
+import { parseRootConfig } from "../../core/config.js";
 import {
   estimateFileTokens,
   estimateDirTokens,
@@ -112,6 +114,22 @@ interface LoadoutGroup {
   rootPath: string;
   artifacts: ArtifactInfo[];
   tools: Tool[];
+}
+
+interface CatalogLoadoutGroupResult {
+  group: LoadoutGroup;
+  warnings: string[];
+}
+
+function renderCatalogLoadoutResult(name: string, result: CatalogLoadoutGroupResult): void {
+  heading(`Loadout: ${name}`);
+  renderUnifiedTable([result.group]);
+  if (result.warnings.length > 0) {
+    console.log();
+    for (const warning of result.warnings) {
+      log.warn(warning);
+    }
+  }
 }
 
 /**
@@ -303,6 +321,55 @@ async function loadLoadoutGroup(
 }
 
 /**
+ * Load a single loadout directly from catalog roots (project/global/bundled).
+ */
+async function loadCatalogLoadoutGroup(
+  name: string,
+  cwd: string
+): Promise<CatalogLoadoutGroupResult | null> {
+  const catalogResult = await findLoadoutInCatalog(name, cwd);
+  if (!catalogResult) return null;
+
+  const { entry, entries, warnings } = catalogResult;
+
+  const roots = entries.map((entry) => entry.root);
+  const rootConfig = parseRootConfig(entry.root.path);
+  const loadout = resolveLoadout(name, roots, rootConfig);
+
+  const owner = entries.find((entry) => entry.root.path === loadout.rootPath)?.owner;
+
+  const projectPrimary = entries.find(
+    (entry) => entry.owner === "project" && entry.root.level === "project"
+  );
+  const globalPrimary = entries.find(
+    (entry) => entry.owner === "global" && entry.root.level === "global"
+  );
+
+  const activeInProject = projectPrimary
+    ? new Set(loadState(projectPrimary.root.path)?.active || []).has(name)
+    : false;
+  const activeInGlobal = globalPrimary
+    ? new Set(loadState(globalPrimary.root.path)?.active || []).has(name)
+    : false;
+
+  const isActive = owner === "project" ? activeInProject : owner === "global" ? activeInGlobal : false;
+  const fallbackScope = owner === "project" ? "project" : "global";
+
+  return {
+    group: {
+      loadoutName: name,
+      scope: getScopeFromRoots(loadout.rootPath, roots, fallbackScope),
+      isActive,
+      description: loadout.description,
+      rootPath: loadout.rootPath,
+      artifacts: toArtifactInfo(loadout.items),
+      tools: loadout.tools,
+    },
+    warnings,
+  };
+}
+
+/**
  * Collect all active loadouts from a context.
  * Returns empty array if no state or no active loadouts.
  */
@@ -381,6 +448,8 @@ export const infoCommand = new Command("info")
   .action(async (name: string | undefined, options: ScopeFlags) => {
     const cwd = process.cwd();
 
+    const canUseCatalogFallback = Boolean(name && !options.local && !options.global);
+
     // If a name is given and no explicit scope, check for collisions
     if (name && !options.local && !options.global && !options.all) {
       try {
@@ -393,19 +462,52 @@ export const infoCommand = new Command("info")
         }
         return;
       } catch (err) {
-        // If it's a collision error, rethrow
+        // If it's a writable-scope collision, surface it directly.
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("exists in both")) {
           log.error(msg);
           process.exit(1);
         }
-        // Otherwise fall through to show all
+        // Otherwise fall through to catalog fallback.
       }
+
+      const catalogResult = await loadCatalogLoadoutGroup(name, cwd);
+      if (catalogResult) {
+        renderCatalogLoadoutResult(name, catalogResult);
+        return;
+      }
+
+      log.error(`Loadout not found: ${name}`);
+      process.exit(1);
     }
 
-    // Show info for all resolved scopes
-    const { contexts } = await resolveContexts(options, cwd);
+    // Show info for all resolved writable scopes
+    let contexts: CommandContext[];
+    try {
+      ({ contexts } = await resolveContexts(options, cwd));
+    } catch (err) {
+      if (canUseCatalogFallback) {
+        const catalogResult = await loadCatalogLoadoutGroup(name!, cwd);
+        if (catalogResult) {
+          renderCatalogLoadoutResult(name!, catalogResult);
+          return;
+        }
+      }
+
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(msg);
+      process.exit(1);
+    }
+
     const hasAny = await executeInfo(contexts, name);
+
+    if (!hasAny && canUseCatalogFallback) {
+      const catalogResult = await loadCatalogLoadoutGroup(name!, cwd);
+      if (catalogResult) {
+        renderCatalogLoadoutResult(name!, catalogResult);
+        return;
+      }
+    }
 
     if (!hasAny) {
       if (name) {

@@ -4,8 +4,8 @@
  * Scope flags:
  *   -l / --local   → project scope only
  *   -g / --global  → global scope only
- *   -a / --all     → show both scopes (default)
- *   (none)         → all available scopes
+ *   -a / --all     → show project, global, and bundled catalogs
+ *   (none)         → all available catalogs
  */
 
 import { Command } from "commander";
@@ -14,6 +14,8 @@ import {
   getGlobalRoot,
   findNearestLoadoutRoot,
   collectRootsWithSources,
+  collectCatalogRoots,
+  type CatalogRootEntry,
 } from "../../core/discovery.js";
 import {
   listLoadouts,
@@ -35,7 +37,7 @@ import {
   renderLoadoutSeparator,
   renderLoadoutCellWithDefault,
 } from "../../lib/loadout-column.js";
-import type { LoadoutRoot } from "../../core/types.js";
+import type { LoadoutRoot, Scope } from "../../core/types.js";
 import chalk from "chalk";
 
 interface LoadoutInfo {
@@ -46,6 +48,11 @@ interface LoadoutInfo {
   description?: string;
   scope: ScopeIndicator;
   error?: boolean;
+}
+
+interface ActiveLoadoutNames {
+  project: Set<string>;
+  global: Set<string>;
 }
 
 /**
@@ -104,6 +111,69 @@ function collectLoadoutsFromRoot(
   }
 
   return { infos, warnings };
+}
+
+/**
+ * Collect loadouts from catalog roots (project/global/bundled).
+ */
+function collectLoadoutsFromCatalog(
+  entries: CatalogRootEntry[],
+  activeNames: ActiveLoadoutNames,
+  sourceChain: string[]
+): LoadoutInfo[] {
+  const infos: LoadoutInfo[] = [];
+  const seenNames = new Set<string>();
+
+  const projectPrimary = entries.find(
+    (entry) => entry.owner === "project" && entry.root.level === "project"
+  );
+  const projectDefault = projectPrimary
+    ? parseRootConfig(projectPrimary.root.path).default
+    : undefined;
+
+  for (const entry of entries) {
+    const { root, owner } = entry;
+
+    if (root.level === "source" && root.sourceRef && !sourceChain.includes(root.sourceRef)) {
+      sourceChain.push(root.sourceRef);
+    }
+
+    const loadoutNames = listLoadouts(root.path);
+    const scope = rootToScope(root);
+
+    for (const name of loadoutNames) {
+      if (seenNames.has(name)) continue;
+      seenNames.add(name);
+
+      const isDefault = root.level === "project" && projectDefault === name;
+      const isActive =
+        owner === "project"
+          ? activeNames.project.has(name)
+          : owner === "global"
+            ? activeNames.global.has(name)
+            : false;
+
+      const defPath = path.join(root.path, "loadouts", `${name}.yaml`);
+      const ymlPath = path.join(root.path, "loadouts", `${name}.yml`);
+      const filePath = fileExists(defPath) ? defPath : ymlPath;
+
+      try {
+        const def = parseLoadoutDefinition(filePath);
+        infos.push({
+          name,
+          isDefault,
+          isActive,
+          count: def.include.length,
+          description: def.description,
+          scope,
+        });
+      } catch {
+        infos.push({ name, isDefault, isActive, count: 0, scope, error: true });
+      }
+    }
+  }
+
+  return infos;
 }
 
 /**
@@ -189,50 +259,71 @@ export const listCommand = new Command("list")
   .option(...SCOPE_FLAGS.all)
   .action(async (options: ScopeFlags) => {
     const cwd = process.cwd();
-    const scopes = await resolveScopes(options, cwd);
-
     const allInfos: LoadoutInfo[] = [];
     const allWarnings: string[] = [];
     const sourceChain: string[] = [];
 
-    // Collect from project scope
-    if (scopes.includes("project")) {
-      const projectRoot = await findNearestLoadoutRoot(cwd);
-      if (projectRoot) {
-        const state = loadState(projectRoot.path);
-        const activeNames = new Set(state?.active || []);
-        // Each scope gets its own seenNames - no cross-scope deduplication
-        const seenNames = new Set<string>();
-        const { infos, warnings } = collectLoadoutsFromRoot(
-          projectRoot, 
-          activeNames, 
-          seenNames, 
-          sourceChain,
-          false  // Don't include bundled for project scope
-        );
-        allInfos.push(...infos);
-        allWarnings.push(...warnings);
-      }
-    }
+    const explicitScope = options.local || options.global;
+    let scopes: Scope[] = [];
 
-    // Collect from global scope (independent from project)
-    if (scopes.includes("global")) {
-      const globalRoot = getGlobalRoot();
-      if (globalRoot) {
-        const state = loadState(globalRoot.path);
-        const activeNames = new Set(state?.active || []);
-        // Each scope gets its own seenNames - no cross-scope deduplication
-        const seenNames = new Set<string>();
-        const { infos, warnings } = collectLoadoutsFromRoot(
-          globalRoot, 
-          activeNames, 
-          seenNames, 
-          sourceChain,
-          true  // Include bundled for global scope
-        );
-        allInfos.push(...infos);
-        allWarnings.push(...warnings);
+    if (explicitScope) {
+      scopes = await resolveScopes(options, cwd);
+
+      // Collect from project scope
+      if (scopes.includes("project")) {
+        const projectRoot = await findNearestLoadoutRoot(cwd);
+        if (projectRoot) {
+          const state = loadState(projectRoot.path);
+          const activeNames = new Set(state?.active || []);
+          const seenNames = new Set<string>();
+          const { infos, warnings } = collectLoadoutsFromRoot(
+            projectRoot,
+            activeNames,
+            seenNames,
+            sourceChain,
+            false
+          );
+          allInfos.push(...infos);
+          allWarnings.push(...warnings);
+        }
       }
+
+      // Collect from global scope
+      if (scopes.includes("global")) {
+        const globalRoot = getGlobalRoot();
+        if (globalRoot) {
+          const state = loadState(globalRoot.path);
+          const activeNames = new Set(state?.active || []);
+          const seenNames = new Set<string>();
+          const { infos, warnings } = collectLoadoutsFromRoot(
+            globalRoot,
+            activeNames,
+            seenNames,
+            sourceChain,
+            false
+          );
+          allInfos.push(...infos);
+          allWarnings.push(...warnings);
+        }
+      }
+    } else {
+      const { entries, warnings } = await collectCatalogRoots(cwd);
+      allWarnings.push(...warnings);
+
+      const projectPrimary = entries.find(
+        (entry) => entry.owner === "project" && entry.root.level === "project"
+      );
+      const globalPrimary = entries.find(
+        (entry) => entry.owner === "global" && entry.root.level === "global"
+      );
+
+      const activeNames: ActiveLoadoutNames = {
+        project: new Set(projectPrimary ? loadState(projectPrimary.root.path)?.active || [] : []),
+        global: new Set(globalPrimary ? loadState(globalPrimary.root.path)?.active || [] : []),
+      };
+
+      const infos = collectLoadoutsFromCatalog(entries, activeNames, sourceChain);
+      allInfos.push(...infos);
     }
 
     if (allInfos.length === 0 && allWarnings.length === 0) {
@@ -243,7 +334,7 @@ export const listCommand = new Command("list")
 
     // Build title based on scopes
     let title: string;
-    if (scopes.length === 1) {
+    if (explicitScope && scopes.length === 1) {
       title = scopes[0] === "project" ? "Project loadouts" : "Global loadouts";
     } else {
       title = "Available loadouts";

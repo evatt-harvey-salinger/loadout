@@ -122,9 +122,6 @@ export function loadoutExistsInScope(name: string, scope: Scope): boolean {
 /**
  * Detect if a loadout name exists in multiple scopes (collision).
  * Returns the scopes where it exists.
- * 
- * Note: Bundled loadouts are available in both scopes, but we treat them
- * as "project" scope for resolution purposes when in a project, else "global".
  */
 export async function detectCollision(
   name: string,
@@ -150,18 +147,6 @@ export async function detectCollision(
     const globalLoadouts = listLoadouts(globalRoot.path);
     if (globalLoadouts.includes(name)) {
       found.push("global");
-    }
-  }
-
-  // Check bundled root - bundled loadouts are always global scope
-  // (they're tools that ship with loadout, not project-specific)
-  if (found.length === 0) {
-    const bundledRoot = getBundledRoot();
-    if (bundledRoot) {
-      const bundledLoadouts = listLoadouts(bundledRoot.path);
-      if (bundledLoadouts.includes(name)) {
-        found.push("global");
-      }
     }
   }
 
@@ -192,6 +177,27 @@ export async function requireScopeForName(
   }
 
   if (collision.length === 0) {
+    const bundledRoot = getBundledRoot();
+    if (bundledRoot) {
+      const bundledLoadouts = listLoadouts(bundledRoot.path);
+      if (bundledLoadouts.includes(name)) {
+        const hasProjectRoot = await inProject(cwd);
+        const hasGlobalRoot = hasGlobal();
+
+        if (hasProjectRoot && hasGlobalRoot) {
+          throw new Error(
+            `Loadout '${name}' is bundled. Use -l/--local or -g/--global to choose a target scope.`
+          );
+        }
+        if (hasProjectRoot) return "project";
+        if (hasGlobalRoot) return "global";
+
+        throw new Error(
+          `Loadout '${name}' is bundled and requires a target scope. Run 'loadouts init' or 'loadouts init --global' first.`
+        );
+      }
+    }
+
     throw new Error(`Loadout '${name}' not found in any scope.`);
   }
 

@@ -68,7 +68,12 @@ export const activateCommand = new Command("activate")
       targetScope = "global";
     } else {
       // Auto-detect from first name, require all to match
-      targetScope = await requireScopeForName(names[0], options, cwd);
+      try {
+        targetScope = await requireScopeForName(names[0], options, cwd);
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
 
       // Verify all names exist in that scope (let the render engine handle actual validation)
     }

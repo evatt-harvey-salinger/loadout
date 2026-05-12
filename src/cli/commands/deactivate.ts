@@ -66,7 +66,12 @@ export const deactivateCommand = new Command("deactivate")
     } else if (options.global) {
       targetScope = "global";
     } else {
-      targetScope = await requireScopeForName(names[0], options, cwd);
+      try {
+        targetScope = await requireScopeForName(names[0], options, cwd);
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
     }
 
     const ctx = await getContext(targetScope, cwd);
