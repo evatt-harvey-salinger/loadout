@@ -9,6 +9,7 @@ import * as os from "node:os";
 import {
   resolveSourcePath,
   collectRootsWithSources,
+  collectCatalogRoots,
 } from "./discovery.js";
 import type { LoadoutRoot } from "./types.js";
 
@@ -186,5 +187,38 @@ sources:
     expect(warnings[0]).toContain("Source not found");
     expect(warnings[0]).toContain("../nonexistent");
     expect(roots).toHaveLength(1); // Just the primary, continues despite warning
+  });
+});
+
+describe("collectCatalogRoots", () => {
+  it("always includes bundled roots for catalog discovery", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "loadouts-catalog-"));
+    try {
+      const { entries } = await collectCatalogRoots(tempDir);
+      expect(entries.some((entry) => entry.owner === "bundled")).toBe(true);
+      expect(entries.some((entry) => entry.root.level === "bundled")).toBe(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps project roots ahead of bundled roots", async () => {
+    setupFixture({
+      "project/.loadouts/loadouts.yaml": "version: '1'",
+    });
+
+    try {
+      const cwd = path.join(FIXTURES_DIR, "project");
+      const { entries } = await collectCatalogRoots(cwd);
+
+      const projectIndex = entries.findIndex((entry) => entry.owner === "project");
+      const bundledIndex = entries.findIndex((entry) => entry.owner === "bundled");
+
+      expect(projectIndex).toBeGreaterThanOrEqual(0);
+      expect(bundledIndex).toBeGreaterThanOrEqual(0);
+      expect(projectIndex).toBeLessThan(bundledIndex);
+    } finally {
+      cleanupFixture();
+    }
   });
 });

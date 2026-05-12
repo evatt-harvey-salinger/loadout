@@ -1,0 +1,44 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source and bundled files
+COPY . .
+
+# Build and package the CLI the same way users install it
+RUN npm run build && npm pack --silent
+
+# Set up a test directory
+WORKDIR /test-project
+
+# Create a simple test script
+RUN echo '#!/bin/sh' > /test.sh && \
+    echo 'set -e' >> /test.sh && \
+    echo 'echo "=== Installing packaged CLI ==="' >> /test.sh && \
+    echo 'npm install -g /app/loadouts-*.tgz >/dev/null' >> /test.sh && \
+    echo 'echo "=== Testing bundled loadout discovery before init ==="' >> /test.sh && \
+    echo 'loadouts list --all | grep -E "loadouts.*Self-documenting"' >> /test.sh && \
+    echo 'echo ""' >> /test.sh && \
+    echo 'echo "=== Testing bundled loadout info before init ==="' >> /test.sh && \
+    echo 'loadouts info loadouts' >> /test.sh && \
+    echo 'echo ""' >> /test.sh && \
+    echo 'echo "=== Testing bundled loadout activation requires target init ==="' >> /test.sh && \
+    echo 'if loadouts activate loadouts --dry-run >/dev/null 2>&1; then' >> /test.sh && \
+    echo '  echo "ERROR: activation succeeded without a writable scope"' >> /test.sh && \
+    echo '  exit 1' >> /test.sh && \
+    echo 'fi' >> /test.sh && \
+    echo 'echo ""' >> /test.sh && \
+    echo 'echo "=== Testing bundled loadout activation after global init ==="' >> /test.sh && \
+    echo 'loadouts init --global >/dev/null' >> /test.sh && \
+    echo 'loadouts activate loadouts --dry-run -g' >> /test.sh && \
+    echo 'echo ""' >> /test.sh && \
+    echo 'echo "=== SUCCESS: Bundled loadout is working! ==="' >> /test.sh && \
+    chmod +x /test.sh
+
+CMD ["/test.sh"]

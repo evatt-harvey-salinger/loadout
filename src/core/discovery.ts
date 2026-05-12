@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { LoadoutRoot, Scope, CommandContext, SourceRef } from "./types.js";
 import { findGitRoot } from "../lib/git.js";
+import { listLoadouts } from "./config.js";
 
 const LOADOUT_DIR = ".loadouts";
 const STATE_FILE = ".state.json";
@@ -299,4 +300,87 @@ export function collectRootsWithSources(
   }
 
   return { roots, warnings };
+}
+
+export type CatalogOwner = Scope | "bundled";
+
+export interface CatalogRootEntry {
+  root: LoadoutRoot;
+  owner: CatalogOwner;
+}
+
+export interface CatalogResolution {
+  entries: CatalogRootEntry[];
+  warnings: string[];
+}
+
+/**
+ * Collect all discoverable roots for read-only catalog operations.
+ *
+ * Order (highest precedence first):
+ *   1. Nearest project root + transitive sources
+ *   2. Global root + transitive sources
+ *   3. Bundled root
+ *
+ * Unlike target scope resolution, this never fails just because no writable
+ * project/global root exists.
+ */
+export async function collectCatalogRoots(
+  cwd: string = process.cwd()
+): Promise<CatalogResolution> {
+  const entries: CatalogRootEntry[] = [];
+  const seenRoots = new Set<string>();
+  const warningSet = new Set<string>();
+
+  const appendChain = (primaryRoot: LoadoutRoot, owner: CatalogOwner): void => {
+    const { roots, warnings } = collectRootsWithSources(primaryRoot, false, false);
+    for (const warning of warnings) {
+      warningSet.add(warning);
+    }
+
+    for (const root of roots) {
+      if (seenRoots.has(root.path)) continue;
+      seenRoots.add(root.path);
+      entries.push({ root, owner });
+    }
+  };
+
+  const discovered = await discoverLoadoutRoots(cwd);
+  const projectRoot = discovered.find((r) => r.level === "project");
+  if (projectRoot) {
+    appendChain(projectRoot, "project");
+  }
+
+  const globalRoot = getGlobalRoot();
+  if (globalRoot) {
+    appendChain(globalRoot, "global");
+  }
+
+  const bundledRoot = getBundledRoot();
+  if (bundledRoot && !seenRoots.has(bundledRoot.path)) {
+    entries.push({ root: bundledRoot, owner: "bundled" });
+  }
+
+  return {
+    entries,
+    warnings: Array.from(warningSet),
+  };
+}
+
+/**
+ * Find a loadout in the read-only catalog roots.
+ */
+export async function findLoadoutInCatalog(
+  name: string,
+  cwd: string = process.cwd()
+): Promise<(CatalogResolution & { entry: CatalogRootEntry }) | null> {
+  const { entries, warnings } = await collectCatalogRoots(cwd);
+
+  for (const entry of entries) {
+    if (listLoadouts(entry.root.path).includes(name)) {
+      return { entry, entries, warnings };
+    }
+  }
+
+  return null;
 }

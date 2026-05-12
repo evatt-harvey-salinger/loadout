@@ -7,6 +7,7 @@
  * Symbols:
  *   • (dim)    — global scope
  *   ◦ (cyan)   — local/project scope
+ *   ◆ (blue)   — bundled (built-in)
  *   →name (yellow) — external source
  */
 
@@ -19,6 +20,7 @@ import type { LoadoutRoot, Scope } from "../core/types.js";
 export type ScopeIndicator =
   | { type: "global" }
   | { type: "local" }
+  | { type: "bundled" }
   | { type: "source"; name: string };
 
 /**
@@ -30,6 +32,8 @@ export function scopeIndicatorText(scope: ScopeIndicator): string {
       return "•";
     case "local":
       return "◦";
+    case "bundled":
+      return "◆";
     case "source":
       return `→${scope.name}`;
   }
@@ -44,6 +48,8 @@ export function formatScopeIndicator(scope: ScopeIndicator): string {
       return chalk.dim("•");
     case "local":
       return chalk.cyan("◦");
+    case "bundled":
+      return chalk.blue("◆");
     case "source":
       return chalk.yellow(`→${scope.name}`);
   }
@@ -83,14 +89,15 @@ export function maxScopeWidth<T extends { scope: ScopeIndicator }>(items: T[]): 
 /**
  * Convert a LoadoutRoot to a ScopeIndicator.
  */
-import { isGlobalScope } from "./artifact-paths.js";
-
 export function rootToScope(root: LoadoutRoot): ScopeIndicator {
   if (root.level === "source" && root.sourceRef) {
     const shortName = root.sourceRef.split("/").pop() || root.sourceRef;
     return { type: "source", name: shortName };
   }
-  if (isGlobalScope(root.level)) {
+  if (root.level === "bundled") {
+    return { type: "bundled" };
+  }
+  if (root.level === "global") {
     return { type: "global" };
   }
   return { type: "local" };
@@ -119,11 +126,13 @@ export function getScopeFromRoots(
 export function renderScopeLegend<T extends { scope: ScopeIndicator }>(items: T[]): void {
   const hasGlobal = items.some((i) => i.scope.type === "global");
   const hasLocal = items.some((i) => i.scope.type === "local");
+  const hasBundled = items.some((i) => i.scope.type === "bundled");
   const hasSource = items.some((i) => i.scope.type === "source");
 
   const parts: string[] = [];
   if (hasGlobal) parts.push(chalk.dim("• global"));
   if (hasLocal) parts.push(chalk.cyan("◦") + chalk.dim(" local"));
+  if (hasBundled) parts.push(chalk.blue("◆") + chalk.dim(" bundled"));
   if (hasSource) parts.push(chalk.yellow("→") + chalk.dim("name source"));
 
   if (parts.length > 0) {
