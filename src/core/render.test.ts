@@ -134,6 +134,150 @@ describe("render symlinked base path safety", () => {
     expect(second.changes.updated).toHaveLength(0);
   });
 
+  it("applyMultiPlan removes empty parent directories for deactivated outputs", async () => {
+    const { loadout, plan } = createLoadoutAndPlan(
+      fixture.sourcePath,
+      fixture.loadoutRoot
+    );
+
+    const secondSourcePath = path.join(fixture.tmpDir, "source", "SECOND_SKILL.md");
+    fs.writeFileSync(secondSourcePath, "# Diagnose\n", "utf-8");
+
+    const secondItem: ResolvedItem = {
+      kind: "skill",
+      sourcePath: secondSourcePath,
+      relativePath: "skills/diagnose/SKILL.md",
+      tools: ["opencode"],
+    };
+
+    const secondTargetPath = ".opencode/skills/diagnose/SKILL.md";
+    const secondPlan: RenderPlan = {
+      outputs: [
+        {
+          spec: {
+            tool: "opencode",
+            kind: "skill",
+            sourcePath: secondSourcePath,
+            targetPath: secondTargetPath,
+            mode: "symlink",
+          },
+          item: secondItem,
+          hash: hashContent(fs.readFileSync(secondSourcePath, "utf-8")),
+        },
+      ],
+      errors: [],
+      shadowed: [],
+    };
+
+    const secondLoadout: ResolvedLoadout = {
+      name: "diagnose",
+      description: "",
+      tools: ["opencode"],
+      items: [secondItem],
+      rootPath: fixture.loadoutRoot,
+    };
+
+    await applyMultiPlan(
+      [
+        { loadout, plan },
+        { loadout: secondLoadout, plan: secondPlan },
+      ],
+      fixture.loadoutRoot,
+      fixture.projectRoot,
+      "symlink",
+      "project"
+    );
+
+    await applyMultiPlan(
+      [{ loadout: secondLoadout, plan: secondPlan }],
+      fixture.loadoutRoot,
+      fixture.projectRoot,
+      "symlink",
+      "project"
+    );
+
+    expect(
+      fs.existsSync(path.join(fixture.projectRoot, ".opencode/skills/grill-me"))
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(fixture.projectRoot, secondTargetPath))
+    ).toBe(true);
+  });
+
+  it("applyMultiPlan keeps non-empty parent directories when removing outputs", async () => {
+    const { loadout, plan } = createLoadoutAndPlan(
+      fixture.sourcePath,
+      fixture.loadoutRoot
+    );
+
+    const secondSourcePath = path.join(fixture.tmpDir, "source", "SECOND_SKILL.md");
+    fs.writeFileSync(secondSourcePath, "# Diagnose\n", "utf-8");
+
+    const secondItem: ResolvedItem = {
+      kind: "skill",
+      sourcePath: secondSourcePath,
+      relativePath: "skills/diagnose/SKILL.md",
+      tools: ["opencode"],
+    };
+
+    const secondTargetPath = ".opencode/skills/diagnose/SKILL.md";
+    const secondPlan: RenderPlan = {
+      outputs: [
+        {
+          spec: {
+            tool: "opencode",
+            kind: "skill",
+            sourcePath: secondSourcePath,
+            targetPath: secondTargetPath,
+            mode: "symlink",
+          },
+          item: secondItem,
+          hash: hashContent(fs.readFileSync(secondSourcePath, "utf-8")),
+        },
+      ],
+      errors: [],
+      shadowed: [],
+    };
+
+    const secondLoadout: ResolvedLoadout = {
+      name: "diagnose",
+      description: "",
+      tools: ["opencode"],
+      items: [secondItem],
+      rootPath: fixture.loadoutRoot,
+    };
+
+    await applyMultiPlan(
+      [
+        { loadout, plan },
+        { loadout: secondLoadout, plan: secondPlan },
+      ],
+      fixture.loadoutRoot,
+      fixture.projectRoot,
+      "symlink",
+      "project"
+    );
+
+    const unmanagedFile = path.join(
+      fixture.projectRoot,
+      ".opencode/skills/grill-me/NOTES.md"
+    );
+    fs.writeFileSync(unmanagedFile, "keep me\n", "utf-8");
+
+    await applyMultiPlan(
+      [{ loadout: secondLoadout, plan: secondPlan }],
+      fixture.loadoutRoot,
+      fixture.projectRoot,
+      "symlink",
+      "project"
+    );
+
+    expect(
+      fs.existsSync(path.join(fixture.projectRoot, ".opencode/skills/grill-me"))
+    ).toBe(true);
+    expect(fs.existsSync(unmanagedFile)).toBe(true);
+  });
+
   it("removeManaged removes managed outputs but keeps base symlink and config", async () => {
     const { loadout, plan } = createLoadoutAndPlan(
       fixture.sourcePath,
