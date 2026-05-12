@@ -1,9 +1,10 @@
 node_modules/
 dist/
 *.log
+*.tgz
 .DS_Store
 
 # Loadout state (machine-local)
-.loadout/.state.json
+.loadouts/.state.json
 
 bin/
