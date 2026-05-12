@@ -19,7 +19,7 @@ import type { Scope } from "../../core/types.js";
 
 interface CreateOptions extends ScopeFlags {
   description?: string;
-  noEdit?: boolean;
+  edit?: boolean;
 }
 
 export const createCommand = new Command("create")
@@ -112,8 +112,8 @@ include: []
     heading(`Created ${scopeLabel} loadout: ${name}`);
     log.success(`Written to: ${loadoutPath}`);
 
-    // Open in editor unless --no-edit
-    if (!options.noEdit) {
+    // Open in editor unless --no-edit (Commander sets options.edit = false)
+    if (options.edit !== false) {
       await openInEditor(loadoutPath, { cwd: rootPath });
     } else {
       console.log();
