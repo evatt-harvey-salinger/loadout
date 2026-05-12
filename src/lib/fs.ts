@@ -72,28 +72,6 @@ export function readSymlinkTarget(linkPath: string): string | null {
 }
 
 /**
- * Check if any parent directory in a path is a symlink.
- * Returns the first symlinked parent path, or null if none.
- */
-export function findSymlinkParent(filePath: string): string | null {
-  const parts = filePath.split(path.sep).filter(Boolean);
-  let current = filePath.startsWith(path.sep) ? path.sep : "";
-  
-  // Check all parents except the final component (which may legitimately be a symlink)
-  for (let i = 0; i < parts.length - 1; i++) {
-    current = path.join(current, parts[i]);
-    try {
-      if (fs.lstatSync(current).isSymbolicLink()) {
-        return current;
-      }
-    } catch {
-      // Path doesn't exist yet, that's fine
-    }
-  }
-  return null;
-}
-
-/**
  * Create a symlink (relative if possible).
  * Idempotent: if symlink already exists with correct target, does nothing.
  */
@@ -126,8 +104,12 @@ export function createSymlink(target: string, linkPath: string): void {
  * Remove a file or symlink.
  */
 export function removeFile(filePath: string): void {
-  if (fs.existsSync(filePath)) {
+  try {
     fs.unlinkSync(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
   }
 }
 
@@ -138,6 +120,23 @@ export function removeDir(dirPath: string): void {
   if (fs.existsSync(dirPath)) {
     fs.rmSync(dirPath, { recursive: true });
   }
+}
+
+/**
+ * Remove a filesystem path, handling symlinks safely.
+ */
+export function removePath(targetPath: string): void {
+  if (isSymlink(targetPath)) {
+    removeFile(targetPath);
+    return;
+  }
+
+  if (isDirectory(targetPath)) {
+    removeDir(targetPath);
+    return;
+  }
+
+  removeFile(targetPath);
 }
 
 /**

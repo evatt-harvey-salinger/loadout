@@ -11,7 +11,6 @@ import {
   removeFile,
   isSymlink,
   readSymlinkTarget,
-  findSymlinkParent,
   hashFile,
   hashDir,
   isDirectory,
@@ -178,13 +177,6 @@ export function detectDrift(
     if (entry.mode === "symlink") {
       const actualTarget = readSymlinkTarget(fullPath);
       if (actualTarget !== entry.sourcePath) {
-        results.push({ entry, status: "misdirected" });
-        continue;
-      }
-      
-      // Check if any parent directory is a symlink (external structure)
-      const symlinkParent = findSymlinkParent(fullPath);
-      if (symlinkParent) {
         results.push({ entry, status: "misdirected" });
         continue;
       }
