@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-05-13
+
 ### Added
 - Add `loadouts doctor` to diagnose and repair gitignore migration drift
 
 ### Changed
 - Expand `loadouts update` gitignore migration to cover global scope as well as project scope
+
+### Fixed
+- Fix `list` to show colliding loadout names across scopes as separate rows
 
 ## [0.1.14] - 2026-05-12
 
