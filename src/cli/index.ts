@@ -35,6 +35,7 @@ import { sanitizeCommand } from "./commands/sanitize.js";
 import { fallbackCommand } from "./commands/fallback.js";
 import { installCommand } from "./commands/install.js";
 import { updateCommand } from "./commands/update.js";
+import { doctorCommand } from "./commands/doctor.js";
 
 // ---------------------------------------------------------------------------
 // Command groups — controls help output order and section headers
@@ -62,6 +63,7 @@ const COMMAND_GROUPS: Array<{ title: string; commands: Command[] }> = [
       removeCommand,
       listCommand,
       checkCommand,
+      doctorCommand,
       diffCommand,
       fallbackCommand,
     ],

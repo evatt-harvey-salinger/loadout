@@ -43,6 +43,8 @@ const LEGACY_END_MARKER = "# </loadout>";
 // Paths always ignored within .loadouts/
 const LOADOUTS_STATE_PATHS = [".fallback-applied", ".state.json"];
 
+const MANAGED_ARTIFACT_KINDS = new Set(["rule", "skill"]);
+
 // ---------------------------------------------------------------------------
 // Core write function
 // ---------------------------------------------------------------------------
@@ -212,32 +214,102 @@ export function rebuildAllGitignores(
   projectRoot: string,
   scope: Scope
 ): void {
-  const rulesDir = path.join(loadoutsDir, "rules");
-  const skillsDir = path.join(loadoutsDir, "skills");
+  const allByTarget = collectArtifactPathsByTarget(loadoutsDir, scope);
 
-  // Collect all paths grouped by target base
-  const allByTarget = new Map<string, string[]>();
+  // Ensure all relevant target dirs are updated, even when they now have no
+  // managed artifacts. This removes stale managed sections from previous runs.
+  const managedTargets = new Set<string>([
+    ...getManagedTargetBases(scope),
+    ...allByTarget.keys(),
+  ]);
 
-  // Rules
-  for (const file of listFilesWithExtension(rulesDir, ".md")) {
-    const name = file.replace(/\.md$/, "");
-    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("rule", name, scope));
-  }
-
-  // Skills
-  for (const name of listFiles(skillsDir).filter((d) =>
-    isDirectory(path.join(skillsDir, d))
-  )) {
-    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("skill", name, scope));
-  }
-
-  // Write per-target .gitignore files
-  for (const [targetBase, paths] of allByTarget) {
+  for (const targetBase of managedTargets) {
+    const paths = allByTarget.get(targetBase) ?? [];
     const absTargetDir = path.isAbsolute(targetBase)
       ? targetBase
       : path.join(projectRoot, targetBase);
     updateTargetGitignore(absTargetDir, paths);
   }
+}
+
+export interface TargetGitignoreMismatch {
+  targetDir: string;
+  expectedPaths: string[];
+  actualPaths: string[];
+}
+
+export interface GitignoreHealthReport {
+  hasLegacyRootSection: boolean;
+  loadoutsStateOutOfDate: boolean;
+  targetMismatches: TargetGitignoreMismatch[];
+  issues: number;
+}
+
+/**
+ * Check whether the legacy managed section exists in root .gitignore.
+ * Handles both # <loadouts> and older # <loadout> markers.
+ */
+export function hasLegacyRootGitignoreSection(projectRoot: string): boolean {
+  const gitignorePath = path.join(projectRoot, ".gitignore");
+  if (!fileExists(gitignorePath)) return false;
+
+  const content = readFile(gitignorePath);
+  return (
+    hasMarkerSection(content, START_MARKER, END_MARKER) ||
+    hasMarkerSection(content, LEGACY_START_MARKER, LEGACY_END_MARKER)
+  );
+}
+
+/**
+ * Inspect gitignore state for a scope and report drift from expected state.
+ */
+export function inspectGitignoreHealth(
+  loadoutsDir: string,
+  projectRoot: string,
+  scope: Scope
+): GitignoreHealthReport {
+  const expectedByTarget = collectArtifactPathsByTarget(loadoutsDir, scope);
+
+  const targetBases = new Set<string>([
+    ...getManagedTargetBases(scope),
+    ...expectedByTarget.keys(),
+  ]);
+
+  const targetMismatches: TargetGitignoreMismatch[] = [];
+  for (const targetBase of [...targetBases].sort()) {
+    const absTargetDir = path.isAbsolute(targetBase)
+      ? targetBase
+      : path.join(projectRoot, targetBase);
+
+    const expectedPaths = normalizePaths(expectedByTarget.get(targetBase) ?? []);
+    const actualPaths = normalizePaths(getManagedPathsFromTarget(absTargetDir));
+
+    if (!samePaths(expectedPaths, actualPaths)) {
+      targetMismatches.push({
+        targetDir: absTargetDir,
+        expectedPaths,
+        actualPaths,
+      });
+    }
+  }
+
+  const expectedStatePaths = normalizePaths(LOADOUTS_STATE_PATHS);
+  const actualStatePaths = normalizePaths(getManagedPathsFromTarget(loadoutsDir));
+  const loadoutsStateOutOfDate = !samePaths(expectedStatePaths, actualStatePaths);
+
+  const hasLegacyRootSection = hasLegacyRootGitignoreSection(projectRoot);
+
+  const issues =
+    targetMismatches.length +
+    (loadoutsStateOutOfDate ? 1 : 0) +
+    (hasLegacyRootSection ? 1 : 0);
+
+  return {
+    hasLegacyRootSection,
+    loadoutsStateOutOfDate,
+    targetMismatches,
+    issues,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +384,60 @@ function removeMarkerSection(
 
   if (before && after) return before + "\n\n" + after;
   return before || after;
+}
+
+function hasMarkerSection(
+  content: string,
+  startMarker: string,
+  endMarker: string
+): boolean {
+  const startIdx = content.indexOf(startMarker);
+  const endIdx = content.indexOf(endMarker);
+  return startIdx !== -1 && endIdx !== -1 && endIdx > startIdx;
+}
+
+function collectArtifactPathsByTarget(
+  loadoutsDir: string,
+  scope: Scope
+): Map<string, string[]> {
+  const rulesDir = path.join(loadoutsDir, "rules");
+  const skillsDir = path.join(loadoutsDir, "skills");
+
+  const allByTarget = new Map<string, string[]>();
+
+  for (const file of listFilesWithExtension(rulesDir, ".md")) {
+    const name = file.replace(/\.md$/, "");
+    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("rule", name, scope));
+  }
+
+  for (const name of listFiles(skillsDir).filter((d) =>
+    isDirectory(path.join(skillsDir, d))
+  )) {
+    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("skill", name, scope));
+  }
+
+  return allByTarget;
+}
+
+function getManagedTargetBases(scope: Scope): string[] {
+  const bases = new Set<string>();
+  for (const tool of registry.allTools()) {
+    if (!tool.supports.some((kind) => MANAGED_ARTIFACT_KINDS.has(kind))) continue;
+    bases.add(tool.basePath[scope]);
+  }
+  return [...bases];
+}
+
+function normalizePaths(paths: string[]): string[] {
+  return [...new Set(paths)].sort();
+}
+
+function samePaths(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 function mergeIntoMap(

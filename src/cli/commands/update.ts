@@ -2,9 +2,10 @@ import { Command } from "commander";
 import { createRequire } from "module";
 import { execSync } from "child_process";
 import * as path from "node:path";
+import * as os from "node:os";
 import { fileExists } from "../../lib/fs.js";
 import {
-  getManagedPaths,
+  inspectGitignoreHealth,
   rebuildAllGitignores,
   updateLoadoutsGitignore,
   removeLegacyRootGitignoreSection,
@@ -21,28 +22,37 @@ const pkg = require("../../../package.json");
  * Safe to run multiple times — checks whether migration is needed first.
  */
 async function migrateGitignore(): Promise<void> {
+  let migrated = false;
+
+  const migrateScope = (
+    scope: "project" | "global",
+    loadoutsDir: string,
+    projectRoot: string
+  ): void => {
+    if (!fileExists(loadoutsDir)) return;
+
+    const health = inspectGitignoreHealth(loadoutsDir, projectRoot, scope);
+    if (health.issues === 0) return;
+
+    log.info(`Migrating ${scope} gitignore to per-target format...`);
+
+    rebuildAllGitignores(loadoutsDir, projectRoot, scope);
+    updateLoadoutsGitignore(loadoutsDir);
+    removeLegacyRootGitignoreSection(projectRoot);
+
+    log.success(`Gitignore migration complete (${scope})`);
+    migrated = true;
+  };
+
   const projectRoot = process.cwd();
-  const loadoutsDir = path.join(projectRoot, ".loadouts");
+  migrateScope("project", path.join(projectRoot, ".loadouts"), projectRoot);
 
-  // Only applies to project-scope loadouts
-  if (!fileExists(loadoutsDir)) return;
+  const homeDir = os.homedir();
+  migrateScope("global", path.join(homeDir, ".config", "loadouts"), homeDir);
 
-  // Check if migration is needed: does the root .gitignore have a managed section?
-  const legacyPaths = getManagedPaths(projectRoot);
-  if (legacyPaths.length === 0) return;
-
-  log.info("Migrating gitignore to per-target format...");
-
-  // Rebuild all gitignores based on current artifacts in .loadouts/
-  rebuildAllGitignores(loadoutsDir, projectRoot, "project");
-
-  // Ensure .loadouts/.gitignore covers state files
-  updateLoadoutsGitignore(loadoutsDir);
-
-  // Remove the old managed section from root .gitignore
-  removeLegacyRootGitignoreSection(projectRoot);
-
-  log.success("Gitignore migration complete");
+  if (!migrated) {
+    log.dim("Gitignore migration already up to date");
+  }
 }
 
 export const updateCommand = new Command("update")
