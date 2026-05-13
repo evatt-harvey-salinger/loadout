@@ -15,6 +15,7 @@ import {
   findNearestLoadoutRoot,
   collectRootsWithSources,
   collectCatalogRoots,
+  type CatalogOwner,
   type CatalogRootEntry,
 } from "../../core/discovery.js";
 import {
@@ -122,7 +123,17 @@ function collectLoadoutsFromCatalog(
   sourceChain: string[]
 ): LoadoutInfo[] {
   const infos: LoadoutInfo[] = [];
-  const seenNames = new Set<string>();
+  // Keep nearest-wins precedence inside each owner chain, but allow
+  // project/global/bundled collisions to appear as separate rows.
+  const seenNamesByOwner = new Map<CatalogOwner, Set<string>>();
+
+  const getOwnerSeenNames = (owner: CatalogOwner): Set<string> => {
+    const seen = seenNamesByOwner.get(owner);
+    if (seen) return seen;
+    const next = new Set<string>();
+    seenNamesByOwner.set(owner, next);
+    return next;
+  };
 
   const projectPrimary = entries.find(
     (entry) => entry.owner === "project" && entry.root.level === "project"
@@ -140,6 +151,7 @@ function collectLoadoutsFromCatalog(
 
     const loadoutNames = listLoadouts(root.path);
     const scope = rootToScope(root);
+    const seenNames = getOwnerSeenNames(owner);
 
     for (const name of loadoutNames) {
       if (seenNames.has(name)) continue;
