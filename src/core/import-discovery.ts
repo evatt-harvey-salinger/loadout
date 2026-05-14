@@ -4,20 +4,22 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { fileExists, isDirectory, isSymlink, listFiles, walkDir } from "../lib/fs.js";
 import { registry } from "./registry.js";
-import { fileExists, isDirectory, isSymlink, listFiles, listFilesWithExtension } from "../lib/fs.js";
+import type { Scope } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ImportableKind = "rule" | "skill" | "instruction";
+export type ImportableKind = string;
 
 export interface DiscoveredArtifact {
   /** Artifact kind */
   kind: ImportableKind;
-  /** Suggested name in .loadouts/ (without extension for rules) */
+  /** Suggested display name */
   name: string;
   /** Absolute path to source file/directory */
   sourcePath: string;
@@ -43,6 +45,8 @@ export interface DiscoveryResult {
 }
 
 export interface DiscoveryOptions {
+  /** Discovery scope */
+  scope?: Scope;
   /** Filter to specific tools */
   tools?: string[];
   /** Filter to specific kinds */
@@ -51,43 +55,16 @@ export interface DiscoveryOptions {
   loadoutPath?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Tool artifact locations
-// ---------------------------------------------------------------------------
-
-interface ToolArtifactLocations {
-  rules?: { dir: string; ext: string };
-  skills?: { dir: string };
+interface TemplateMatch {
+  matched: boolean;
+  captures: Record<string, string>;
 }
-
-const TOOL_LOCATIONS: Record<string, ToolArtifactLocations> = {
-  "claude-code": {
-    rules: { dir: ".claude/rules", ext: ".md" },
-    skills: { dir: ".claude/skills" },
-  },
-  cursor: {
-    rules: { dir: ".cursor/rules", ext: ".mdc" },
-    skills: { dir: ".cursor/skills" },
-  },
-  opencode: {
-    rules: { dir: ".opencode/rules", ext: ".md" },
-    skills: { dir: ".opencode/skills" },
-  },
-  codex: {
-    // codex doesn't support rules
-    skills: { dir: ".agents/skills" },
-  },
-  pi: {
-    // pi doesn't have native rules support
-    skills: { dir: ".pi/skills" },
-  },
-};
 
 // Instruction file locations to check (in priority order)
 const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 
 // ---------------------------------------------------------------------------
-// Discovery functions
+// Filesystem helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -113,99 +90,123 @@ function getMtime(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-/**
- * Discover rules in a tool directory.
- */
-function discoverRules(
-  projectRoot: string,
-  tool: string,
-  locations: ToolArtifactLocations
-): DiscoveredArtifact[] {
-  if (!locations.rules) return [];
-
-  const rulesDir = path.join(projectRoot, locations.rules.dir);
-  if (!isDirectory(rulesDir)) return [];
-
-  const artifacts: DiscoveredArtifact[] = [];
-  const files = listFilesWithExtension(rulesDir, locations.rules.ext);
-
-  for (const file of files) {
-    const sourcePath = path.join(rulesDir, file);
-    const name = file.replace(/\.(md|mdc)$/, "");
-    
-    artifacts.push({
-      kind: "rule",
-      name,
-      sourcePath,
-      displayPath: path.join(locations.rules.dir, file),
-      tool,
-      size: getSize(sourcePath),
-      mtime: getMtime(sourcePath),
-      destPath: `rules/${name}.md`,
-    });
+function readArtifactMetadata(filePath: string): { size: number; mtime: Date } | null {
+  try {
+    return {
+      size: getSize(filePath),
+      mtime: getMtime(filePath),
+    };
+  } catch {
+    return null;
   }
-
-  return artifacts;
 }
 
 /**
- * Discover skills in a tool directory.
- * Skips symlinked directories that point to other tool directories
- * to avoid duplicate detection.
+ * Convert Windows path separators to POSIX-style separators.
  */
-function discoverSkills(
-  projectRoot: string,
-  tool: string,
-  locations: ToolArtifactLocations
-): DiscoveredArtifact[] {
-  if (!locations.skills) return [];
+function toPosix(filePath: string): string {
+  return filePath.split(path.sep).join("/");
+}
 
-  const skillsDir = path.join(projectRoot, locations.skills.dir);
-  if (!isDirectory(skillsDir)) return [];
+/**
+ * Escape string for safe regex inclusion.
+ */
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  // Skip if this skills dir is a symlink pointing to another tool's directory
-  // (e.g., .cursor/skills -> ../.claude/skills)
-  if (isSymlink(skillsDir)) {
-    try {
-      const target = fs.realpathSync(skillsDir);
-      // Check if target is inside another tool's directory
-      for (const [otherTool, otherLoc] of Object.entries(TOOL_LOCATIONS)) {
-        if (otherTool === tool || !otherLoc.skills) continue;
-        const otherSkillsDir = path.join(projectRoot, otherLoc.skills.dir);
-        if (target.startsWith(fs.realpathSync(path.dirname(otherSkillsDir)))) {
-          // This is a symlink to another tool's skills - skip to avoid duplicates
-          return [];
-        }
+/**
+ * Select the path template for the requested scope.
+ */
+function getScopeTemplate(
+  mappingPath: string | { project: string; global: string },
+  scope: Scope
+): string {
+  return typeof mappingPath === "string" ? mappingPath : mappingPath[scope];
+}
+
+/**
+ * Resolve a tool base path to absolute for the current scope.
+ */
+function resolveAbsoluteBasePath(
+  scanRoot: string,
+  basePath: string
+): string {
+  return path.isAbsolute(basePath) ? basePath : path.join(scanRoot, basePath);
+}
+
+/**
+ * Format a path for display relative to scan root when possible.
+ */
+function toDisplayPath(scanRoot: string, absolutePath: string): string {
+  const rel = path.relative(scanRoot, absolutePath);
+  if (!rel.startsWith("..") && !path.isAbsolute(rel)) {
+    return toPosix(rel);
+  }
+
+  const home = os.homedir();
+  if (absolutePath === home) return "~";
+  if (absolutePath.startsWith(`${home}${path.sep}`)) {
+    return `~/${toPosix(path.relative(home, absolutePath))}`;
+  }
+
+  return toPosix(absolutePath);
+}
+
+/**
+ * Build a regex matcher for a concrete template path.
+ * Supported tokens: {base} {home} {stem} {ext} {name} {relative} {kind}
+ */
+function matchTemplatePath(templatePath: string, actualPath: string): TemplateMatch {
+  const captures: Record<string, string> = {};
+  const tokens: string[] = [];
+
+  let pattern = "";
+  for (let i = 0; i < templatePath.length; i += 1) {
+    const ch = templatePath[i];
+    if (ch === "{") {
+      const end = templatePath.indexOf("}", i + 1);
+      if (end === -1) {
+        pattern += escapeRegex(ch);
+        continue;
       }
-    } catch {
-      // If we can't resolve the symlink, proceed normally
+      const token = templatePath.slice(i + 1, end);
+      tokens.push(token);
+      switch (token) {
+        case "stem":
+        case "name":
+        case "kind":
+          pattern += "([^/]+)";
+          break;
+        case "ext":
+          pattern += "([^/]*)";
+          break;
+        case "relative":
+          pattern += "(.+)";
+          break;
+        case "base":
+        case "home":
+          pattern += "(.+)";
+          break;
+        default:
+          pattern += "(.+)";
+          break;
+      }
+      i = end;
+      continue;
     }
+    pattern += escapeRegex(ch);
   }
 
-  const artifacts: DiscoveredArtifact[] = [];
-  const entries = listFiles(skillsDir);
+  const regex = new RegExp(`^${pattern}$`);
+  const match = actualPath.match(regex);
+  if (!match) return { matched: false, captures };
 
-  for (const entry of entries) {
-    const skillPath = path.join(skillsDir, entry);
-    if (!isDirectory(skillPath)) continue;
-
-    // Check for SKILL.md to confirm it's a valid skill
-    const skillMdPath = path.join(skillPath, "SKILL.md");
-    if (!fileExists(skillMdPath)) continue;
-
-    artifacts.push({
-      kind: "skill",
-      name: entry,
-      sourcePath: skillPath,
-      displayPath: path.join(locations.skills.dir, entry),
-      tool,
-      size: getSize(skillPath),
-      mtime: getMtime(skillPath),
-      destPath: `skills/${entry}`,
-    });
+  for (let i = 0; i < tokens.length; i += 1) {
+    captures[tokens[i]] = match[i + 1] ?? "";
   }
 
-  return artifacts;
+  return { matched: true, captures };
 }
 
 /**
@@ -215,7 +216,7 @@ function discoverSkills(
 function isManagedByLoadout(filePath: string, loadoutPath: string | undefined): boolean {
   if (!loadoutPath) return false;
   if (!isSymlink(filePath)) return false;
-  
+
   try {
     const target = fs.readlinkSync(filePath);
     const absoluteTarget = path.isAbsolute(target)
@@ -241,24 +242,91 @@ function isClaudeWrapper(filePath: string): boolean {
 }
 
 /**
+ * Infer destination path for a discovered artifact.
+ *
+ * For built-ins we preserve canonical layout.
+ * For custom/future kinds we try several heuristics and keep whichever
+ * path is accepted by the kind's detect() predicate.
+ */
+function inferDestPath(
+  kindId: string,
+  toolName: string,
+  strippedTargetPath: string,
+  captures: Record<string, string>
+): string | null {
+  const kind = registry.getKind(kindId);
+  if (!kind) return null;
+
+  const stem = captures.stem || captures.name || path.basename(strippedTargetPath, path.extname(strippedTargetPath));
+  const ext = captures.ext || path.extname(strippedTargetPath);
+
+  // Canonical built-ins.
+  if (kindId === "instruction") {
+    return "instructions/AGENTS.base.md";
+  }
+  if (kindId === "rule") {
+    return `rules/${stem}.md`;
+  }
+
+  const candidates = [
+    strippedTargetPath,
+    `${toolName}/${strippedTargetPath}`,
+    `${kindId}/${strippedTargetPath}`,
+    `${kindId.replace(/-/g, "/")}/${strippedTargetPath}`,
+    `${kindId}/${stem}${ext}`,
+    `${kindId.replace(/-/g, "/")}/${stem}${ext}`,
+  ];
+
+  for (const candidate of candidates) {
+    const rel = toPosix(candidate).replace(/^\/+/, "");
+    if (kind.detect(rel)) {
+      return rel;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check whether a given destination path already exists in .loadouts/.
+ */
+function artifactExistsInLoadout(
+  loadoutPath: string,
+  artifact: DiscoveredArtifact
+): boolean {
+  if (artifact.kind === "instruction") {
+    return false;
+  }
+
+  const kind = registry.getKind(artifact.kind);
+  if (!kind) return false;
+
+  const destPath = path.join(loadoutPath, artifact.destPath);
+  return kind.layout === "dir" ? isDirectory(destPath) : fileExists(destPath);
+}
+
+/**
  * Discover instruction files at project root.
  * Only discovers files that are NOT managed by loadout.
  */
 function discoverInstructions(
-  projectRoot: string,
+  scanRoot: string,
   loadoutPath: string | undefined
 ): DiscoveredArtifact[] {
+  const kind = registry.getKind("instruction");
+  if (!kind) return [];
+
   const artifacts: DiscoveredArtifact[] = [];
 
   for (const filename of INSTRUCTION_FILES) {
-    const filePath = path.join(projectRoot, filename);
+    const filePath = path.join(scanRoot, filename);
     if (!fileExists(filePath)) continue;
-    
-    // Skip if this file is managed by loadout (symlink to .loadouts/)
+
     if (isManagedByLoadout(filePath, loadoutPath)) continue;
-    
-    // Skip auto-generated CLAUDE.md wrapper
     if (filename === "CLAUDE.md" && isClaudeWrapper(filePath)) continue;
+
+    const metadata = readArtifactMetadata(filePath);
+    if (!metadata) continue;
 
     artifacts.push({
       kind: "instruction",
@@ -266,9 +334,9 @@ function discoverInstructions(
       sourcePath: filePath,
       displayPath: filename,
       tool: "project-root",
-      size: getSize(filePath),
-      mtime: getMtime(filePath),
-      destPath: "instructions/AGENTS.base.md",  // Will be updated by install based on target loadout
+      size: metadata.size,
+      mtime: metadata.mtime,
+      destPath: "instructions/AGENTS.base.md",
     });
   }
 
@@ -276,76 +344,185 @@ function discoverInstructions(
 }
 
 /**
- * Check if an artifact already exists in .loadouts/.
- * For instructions, we DON'T filter them out since unmanaged files at project root
- * should be offered for import (to replace the template).
+ * Discover artifacts for one (tool, kind) pair by matching tool target templates.
  */
-function artifactExistsInLoadout(
-  loadoutPath: string,
-  artifact: DiscoveredArtifact
-): boolean {
-  // Instructions at project root are already filtered by discoverInstructions
-  // if they're managed. If they reach here, they're unmanaged and should be imported.
-  if (artifact.kind === "instruction") {
-    return false; // Always offer to import unmanaged instruction files
+function discoverForToolKind(
+  scanRoot: string,
+  scope: Scope,
+  toolName: string,
+  kindId: string,
+  warnings: string[]
+): DiscoveredArtifact[] {
+  // Instruction files are discovered centrally at project root to avoid
+  // duplicate detection across tools that map to AGENTS.md / CLAUDE.md.
+  if (kindId === "instruction") return [];
+
+  const tool = registry.getTool(toolName);
+  const kind = registry.getKind(kindId);
+  if (!tool || !kind) return [];
+
+  const mapping = registry.resolveMapping(toolName, kindId);
+  if (!mapping) return [];
+
+  const template = getScopeTemplate(mapping.path, scope);
+  const absoluteBasePath = resolveAbsoluteBasePath(scanRoot, tool.basePath[scope]);
+  const concreteTemplate = toPosix(template)
+    .replaceAll("{base}", toPosix(absoluteBasePath))
+    .replaceAll("{home}", toPosix(os.homedir()));
+
+  const parentTemplate = path.posix.dirname(concreteTemplate);
+  const leafTemplate = path.posix.basename(concreteTemplate);
+  const templateIsAbsolute = path.posix.isAbsolute(concreteTemplate);
+
+  // If parent path still has unresolved tokens, we cannot reliably scan.
+  if (/{[^}]+}/.test(parentTemplate)) {
+    warnings.push(
+      `Skipped ${toolName}:${kindId} import scan (unsupported template parent: ${template})`
+    );
+    return [];
   }
-  
-  const destPath = path.join(loadoutPath, artifact.destPath);
-  return artifact.kind === "skill" ? isDirectory(destPath) : fileExists(destPath);
+
+  const parentAbs = templateIsAbsolute
+    ? parentTemplate
+    : path.join(scanRoot, parentTemplate);
+  if (!isDirectory(parentAbs)) return [];
+
+  let candidateAbsPaths: string[] = [];
+
+  if (kind.layout === "dir") {
+    // Prefer one-level dir scanning for templates like .../{name}.
+    if (leafTemplate === "{name}" || leafTemplate === "{stem}") {
+      candidateAbsPaths = listFiles(parentAbs)
+        .map((entry) => path.join(parentAbs, entry))
+        .filter((absolutePath) => isDirectory(absolutePath));
+    } else if (!/{[^}]+}/.test(leafTemplate)) {
+      const absolutePath = path.join(parentAbs, leafTemplate);
+      if (isDirectory(absolutePath)) {
+        candidateAbsPaths = [absolutePath];
+      }
+    }
+  } else {
+    if (/{relative}/.test(template)) {
+      candidateAbsPaths = walkDir(parentAbs).map((entry) => path.join(parentAbs, entry));
+    } else if (!/{[^}]+}/.test(leafTemplate)) {
+      const absolutePath = path.join(parentAbs, leafTemplate);
+      if (fileExists(absolutePath)) {
+        candidateAbsPaths = [absolutePath];
+      }
+    } else {
+      candidateAbsPaths = listFiles(parentAbs)
+        .map((entry) => path.join(parentAbs, entry))
+        .filter((absolutePath) => fileExists(absolutePath));
+    }
+  }
+
+  const artifacts: DiscoveredArtifact[] = [];
+
+  for (const sourcePath of candidateAbsPaths) {
+    const sourcePathPosix = toPosix(sourcePath);
+    const matchPath = templateIsAbsolute
+      ? sourcePathPosix
+      : toPosix(path.relative(scanRoot, sourcePath));
+    const match = matchTemplatePath(concreteTemplate, matchPath);
+    if (!match.matched) continue;
+
+    // Skip tool directories symlinked to another tool to avoid duplicates.
+    if (kind.layout === "dir" && isSymlink(sourcePath)) {
+      continue;
+    }
+
+    const basePrefix = `${toPosix(absoluteBasePath)}/`;
+    const stripped = sourcePathPosix.startsWith(basePrefix)
+      ? sourcePathPosix.slice(basePrefix.length)
+      : matchPath;
+
+    const destPath = inferDestPath(kindId, toolName, stripped, match.captures);
+    if (!destPath) {
+      warnings.push(
+        `Skipped ${toolName}:${kindId} artifact (cannot infer loadout path for ${matchPath})`
+      );
+      continue;
+    }
+
+    const metadata = readArtifactMetadata(sourcePath);
+    if (!metadata) {
+      warnings.push(
+        `Skipped ${toolName}:${kindId} artifact (unreadable path: ${toDisplayPath(scanRoot, sourcePath)})`
+      );
+      continue;
+    }
+
+    const name = kind.layout === "dir"
+      ? path.basename(destPath)
+      : path.basename(destPath, path.extname(destPath));
+
+    artifacts.push({
+      kind: kindId,
+      name,
+      sourcePath,
+      displayPath: toDisplayPath(scanRoot, sourcePath),
+      tool: toolName,
+      size: metadata.size,
+      mtime: metadata.mtime,
+      destPath,
+    });
+  }
+
+  return artifacts;
 }
+
+// ---------------------------------------------------------------------------
+// Public discovery API
+// ---------------------------------------------------------------------------
 
 /**
  * Discover all importable artifacts in a project.
  */
 export function discoverImportableArtifacts(
-  projectRoot: string,
+  scanRoot: string,
   options: DiscoveryOptions = {}
 ): DiscoveryResult {
   const artifacts: DiscoveredArtifact[] = [];
   const warnings: string[] = [];
-  const { tools, kinds, loadoutPath } = options;
+  const { scope = "project", tools, kinds, loadoutPath } = options;
 
-  // Filter tools if specified
+  const allTools = registry.allToolNames();
   const toolsToScan = tools
-    ? Object.keys(TOOL_LOCATIONS).filter((t) => tools.includes(t))
-    : Object.keys(TOOL_LOCATIONS);
+    ? allTools.filter((tool) => tools.includes(tool))
+    : allTools;
 
-  // Discover from each tool directory
-  for (const tool of toolsToScan) {
-    const locations = TOOL_LOCATIONS[tool];
+  const allKinds = registry.allKinds().map((kind) => kind.id);
+  const kindsToScan = kinds && kinds.length > 0
+    ? allKinds.filter((kind) => kinds.includes(kind))
+    : allKinds;
 
-    // Rules
-    if (!kinds || kinds.includes("rule")) {
-      artifacts.push(...discoverRules(projectRoot, tool, locations));
-    }
-
-    // Skills
-    if (!kinds || kinds.includes("skill")) {
-      artifacts.push(...discoverSkills(projectRoot, tool, locations));
+  for (const toolName of toolsToScan) {
+    for (const kindId of kindsToScan) {
+      artifacts.push(...discoverForToolKind(scanRoot, scope, toolName, kindId, warnings));
     }
   }
 
-  // Instructions (not tool-specific)
-  if (!kinds || kinds.includes("instruction")) {
-    artifacts.push(...discoverInstructions(projectRoot, loadoutPath));
+  // Keep root-level instruction import behavior for unmanaged AGENTS/CLAUDE files.
+  if (!kinds || kinds.length === 0 || kinds.includes("instruction")) {
+    artifacts.push(...discoverInstructions(scanRoot, loadoutPath));
   }
 
-  // Filter out artifacts that already exist in .loadouts/
+  // Filter out artifacts already present in .loadouts/.
   const filteredArtifacts = loadoutPath
-    ? artifacts.filter((a) => !artifactExistsInLoadout(loadoutPath, a))
+    ? artifacts.filter((artifact) => !artifactExistsInLoadout(loadoutPath, artifact))
     : artifacts;
 
-  // Detect conflicts (same name from different tools)
-  const byName = new Map<string, DiscoveredArtifact[]>();
+  // Detect conflicts by canonical destination path.
+  const byDest = new Map<string, DiscoveredArtifact[]>();
   for (const artifact of filteredArtifacts) {
-    const key = `${artifact.kind}:${artifact.name}`;
-    const existing = byName.get(key) || [];
+    const key = `${artifact.kind}:${artifact.destPath}`;
+    const existing = byDest.get(key) ?? [];
     existing.push(artifact);
-    byName.set(key, existing);
+    byDest.set(key, existing);
   }
 
   const conflicts = new Map<string, DiscoveredArtifact[]>();
-  for (const [key, items] of byName) {
+  for (const [key, items] of byDest) {
     if (items.length > 1) {
       conflicts.set(key, items);
     }
@@ -359,17 +536,12 @@ export function discoverImportableArtifacts(
  */
 export function groupByKind(
   artifacts: DiscoveredArtifact[]
-): Record<ImportableKind, DiscoveredArtifact[]> {
-  const groups: Record<ImportableKind, DiscoveredArtifact[]> = {
-    instruction: [],
-    rule: [],
-    skill: [],
-  };
-
+): Record<string, DiscoveredArtifact[]> {
+  const groups: Record<string, DiscoveredArtifact[]> = {};
   for (const artifact of artifacts) {
+    groups[artifact.kind] ??= [];
     groups[artifact.kind].push(artifact);
   }
-
   return groups;
 }
 

@@ -19,7 +19,6 @@ import {
   type ImportableKind,
   type DiscoveryResult,
 } from "../../core/import-discovery.js";
-import { findNearestLoadoutRoot, getProjectRoot } from "../../core/discovery.js";
 import {
   writeFile,
   readFile,
@@ -33,19 +32,23 @@ import {
 } from "../../lib/fs.js";
 import { parseLoadoutDefinition, sanitizeRuleFile } from "../../core/config.js";
 import { loadState } from "../../core/manifest.js";
+import { registry } from "../../core/registry.js";
+import { resolveContexts, SCOPE_FLAGS, type ScopeFlags } from "../../core/scope.js";
 import { log, heading } from "../../lib/output.js";
 import { rebuildAllGitignores } from "../../lib/gitignore.js";
 import { initProjectLoadout } from "./init.js";
+import type { CommandContext } from "../../core/types.js";
 
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface InstallOptions {
+interface InstallOptions extends ScopeFlags {
   rules?: boolean;
   skills?: boolean;
   instructions?: boolean;
+  kinds?: string;
   from?: string;
   to?: string;       // target loadout (undefined means auto-detect)
   interactive?: boolean;
@@ -85,42 +88,22 @@ async function askQuestion(rl: readline.Interface, question: string): Promise<st
 
 function displayDiscoveryResults(result: DiscoveryResult): void {
   const grouped = groupByKind(result.artifacts);
+  const kinds = Object.keys(grouped).sort();
 
   console.log();
   log.info(`Found ${result.artifacts.length} artifacts to import:`);
   console.log();
 
-  // Instructions
-  if (grouped.instruction.length > 0) {
-    console.log(chalk.bold("  INSTRUCTIONS") + chalk.dim(` (${grouped.instruction.length})`));
-    for (const artifact of grouped.instruction) {
-      const conflict = result.conflicts.has(`instruction:${artifact.name}`);
-      const suffix = conflict ? chalk.yellow(" ⚠ conflict") : "";
-      console.log(chalk.dim("    ○ ") + artifact.displayPath + suffix);
-    }
-    console.log();
-  }
+  for (const kind of kinds) {
+    const items = grouped[kind];
+    if (!items || items.length === 0) continue;
 
-  // Rules
-  if (grouped.rule.length > 0) {
-    console.log(chalk.bold("  RULES") + chalk.dim(` (${grouped.rule.length})`));
-    for (const artifact of grouped.rule) {
-      const conflict = result.conflicts.has(`rule:${artifact.name}`);
+    console.log(chalk.bold(`  ${kind.toUpperCase()}`) + chalk.dim(` (${items.length})`));
+    for (const artifact of items) {
+      const conflict = result.conflicts.has(`${artifact.kind}:${artifact.destPath}`);
       const suffix = conflict ? chalk.yellow(" ⚠ conflict") : "";
-      const toolHint = chalk.dim(` (${artifact.tool})`);
-      console.log(chalk.dim("    ○ ") + artifact.name + toolHint + suffix);
-    }
-    console.log();
-  }
-
-  // Skills
-  if (grouped.skill.length > 0) {
-    console.log(chalk.bold("  SKILLS") + chalk.dim(` (${grouped.skill.length})`));
-    for (const artifact of grouped.skill) {
-      const conflict = result.conflicts.has(`skill:${artifact.name}`);
-      const suffix = conflict ? chalk.yellow(" ⚠ conflict") : "";
-      const toolHint = chalk.dim(` (${artifact.tool})`);
-      console.log(chalk.dim("    ○ ") + artifact.name + "/" + toolHint + suffix);
+      const toolHint = artifact.tool === "project-root" ? "" : chalk.dim(` (${artifact.tool})`);
+      console.log(chalk.dim("    ○ ") + artifact.displayPath + toolHint + suffix);
     }
     console.log();
   }
@@ -129,6 +112,17 @@ function displayDiscoveryResults(result: DiscoveryResult): void {
   if (result.conflicts.size > 0) {
     console.log(chalk.yellow(`  ⚠ ${result.conflicts.size} naming conflict(s) detected`));
     console.log(chalk.dim("    Conflicts will be resolved during import"));
+    console.log();
+  }
+
+  if (result.warnings.length > 0) {
+    console.log(chalk.yellow(`  ⚠ ${result.warnings.length} discovery warning(s)`));
+    for (const warning of result.warnings.slice(0, 5)) {
+      console.log(chalk.dim(`    - ${warning}`));
+    }
+    if (result.warnings.length > 5) {
+      console.log(chalk.dim(`    - ... and ${result.warnings.length - 5} more`));
+    }
     console.log();
   }
 }
@@ -189,7 +183,7 @@ async function resolveConflicts(
   const seen = new Set<string>();
 
   for (const artifact of result.artifacts) {
-    const key = `${artifact.kind}:${artifact.name}`;
+    const key = `${artifact.kind}:${artifact.destPath}`;
 
     // Skip if we've already handled this conflict
     if (seen.has(key)) continue;
@@ -234,11 +228,10 @@ async function resolveConflicts(
       for (const c of conflicting) {
         const renamed = { ...c };
         const toolSuffix = c.tool === "project-root" ? "" : `-${c.tool}`;
-        if (c.kind === "rule") {
-          renamed.destPath = `rules/${c.name}${toolSuffix}.md`;
-        } else if (c.kind === "skill") {
-          renamed.destPath = `skills/${c.name}${toolSuffix}`;
-        }
+        const ext = path.extname(c.destPath);
+        renamed.destPath = ext
+          ? `${c.destPath.slice(0, -ext.length)}${toolSuffix}${ext}`
+          : `${c.destPath}${toolSuffix}`;
         resolved.push(renamed);
       }
     } else {
@@ -267,13 +260,14 @@ async function importArtifact(
   options: { keep: boolean; dryRun: boolean }
 ): Promise<ImportResult> {
   const destPath = path.join(loadoutPath, artifact.destPath);
+  const kind = registry.getKind(artifact.kind);
 
   if (options.dryRun) {
     return { artifact, success: true };
   }
 
   try {
-    if (artifact.kind === "skill") {
+    if (kind?.layout === "dir") {
       // Copy directory
       copyDir(artifact.sourcePath, destPath);
     } else {
@@ -288,7 +282,7 @@ async function importArtifact(
 
     // Remove original unless --keep
     if (!options.keep) {
-      if (artifact.kind === "skill") {
+      if (kind?.layout === "dir") {
         removeDir(artifact.sourcePath);
       } else {
         removeFile(artifact.sourcePath);
@@ -441,23 +435,33 @@ export interface InstallResult {
 }
 
 export async function runInstall(
-  projectRoot: string,
-  loadoutPath: string,
+  ctx: CommandContext,
   options: InstallOptions
 ): Promise<InstallResult> {
+  const projectRoot = ctx.projectRoot;
+  const loadoutPath = ctx.configPath;
+
   // Build filter options
   const kinds: ImportableKind[] | undefined = (() => {
-    const selected: ImportableKind[] = [];
-    if (options.rules) selected.push("rule");
-    if (options.skills) selected.push("skill");
-    if (options.instructions) selected.push("instruction");
-    return selected.length > 0 ? selected : undefined;
+    const selected = new Set<ImportableKind>();
+    if (options.rules) selected.add("rule");
+    if (options.skills) selected.add("skill");
+    if (options.instructions) selected.add("instruction");
+
+    if (options.kinds) {
+      for (const kind of options.kinds.split(",").map((k) => k.trim()).filter(Boolean)) {
+        selected.add(kind);
+      }
+    }
+
+    return selected.size > 0 ? [...selected] : undefined;
   })();
 
   const tools = options.from?.split(",").map((t) => t.trim());
 
   // Discover artifacts
   const result = discoverImportableArtifacts(projectRoot, {
+    scope: ctx.scope,
     tools,
     kinds,
     loadoutPath,
@@ -479,7 +483,7 @@ export async function runInstall(
     const seen = new Set<string>();
 
     for (const artifact of result.artifacts) {
-      const key = `${artifact.kind}:${artifact.name}`;
+      const key = `${artifact.kind}:${artifact.destPath}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
@@ -544,7 +548,7 @@ export async function runInstall(
       if (answer === "i") {
         // Switch to interactive mode
         rl.close();
-        return runInstall(projectRoot, loadoutPath, { ...options, interactive: true });
+        return runInstall(ctx, { ...options, interactive: true });
       }
 
       // Resolve conflicts automatically (take newest)
@@ -552,7 +556,7 @@ export async function runInstall(
       const seen = new Set<string>();
 
       for (const artifact of result.artifacts) {
-        const key = `${artifact.kind}:${artifact.name}`;
+        const key = `${artifact.kind}:${artifact.destPath}`;
         if (seen.has(key)) continue;
         seen.add(key);
 
@@ -678,10 +682,14 @@ export async function runInstall(
 
 export const installCommand = new Command("install")
   .description("Import existing tool configurations into loadout")
+  .option(...SCOPE_FLAGS.local)
+  .option(...SCOPE_FLAGS.global)
+  .option(...SCOPE_FLAGS.all)
   .option("--rules", "Only import rules")
   .option("--skills", "Only import skills")
   .option("--instructions", "Only import instructions")
-  .option("--from <tools>", "Only from specific tools (comma-separated: cursor,claude-code,opencode,codex,pi)")
+  .option("--kinds <kinds>", "Only import specific kind IDs (comma-separated)")
+  .option("--from <tools>", "Only from specific tools (comma-separated)")
   .option("-i, --interactive", "Interactive selection mode")
   .option("-y, --yes", "Auto-confirm without prompting")
   .option("--dry-run", "Preview changes without applying")
@@ -690,34 +698,38 @@ export const installCommand = new Command("install")
   .action(async (options: InstallOptions) => {
     const cwd = process.cwd();
 
-    // Find .loadouts/ directory, preferring project-level
-    const loadoutRoot = await findNearestLoadoutRoot(cwd);
-    
-    // Check if we have a project-level loadout or only global
-    const hasProjectLoadout = loadoutRoot && loadoutRoot.level === "project";
-    
-    let projectRoot: string;
-    let loadoutPath: string;
-    
-    if (!hasProjectLoadout) {
-      // No project-level .loadouts/ — offer to initialize
+    let contexts: CommandContext[] = [];
+
+    try {
+      ({ contexts } = await resolveContexts(options, cwd));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const canAutoInitProject =
+        !options.global &&
+        !options.all &&
+        message.includes("No loadout found");
+
+      if (!canAutoInitProject) {
+        log.error(message);
+        process.exit(1);
+      }
+
       console.log();
       log.warn("No project .loadouts/ found.");
-      
-      // Auto-init with --yes, otherwise prompt
+
       if (!options.yes) {
         const rl = readline.createInterface({
           input: process.stdin,
           output: process.stdout,
         });
-        
+
         const answer = await new Promise<string>((resolve) => {
           rl.question("Initialize one now? [Y/n] ", (ans) => {
             resolve(ans.trim().toLowerCase());
             rl.close();
           });
         });
-        
+
         if (answer === "n" || answer === "no") {
           log.dim("Run 'loadouts init' to set up a project loadout.");
           process.exit(0);
@@ -725,38 +737,55 @@ export const installCommand = new Command("install")
       } else {
         log.info("Auto-initializing project loadout...");
       }
-      
-      // Initialize a minimal project loadout
+
       console.log();
       if (options.dryRun) {
         log.info("Would initialize .loadouts/ (dry-run)");
-        // For dry-run, we still need to scan from the project root
-        // but we don't create the loadout directory
-        projectRoot = cwd;
-        loadoutPath = path.join(cwd, ".loadouts");
+        const configPath = path.join(cwd, ".loadouts");
+        contexts = [
+          {
+            scope: "project",
+            configPath,
+            statePath: path.join(configPath, ".state.json"),
+            projectRoot: cwd,
+          },
+        ];
       } else {
-        loadoutPath = await initProjectLoadout(cwd);
-        projectRoot = cwd;
+        const configPath = await initProjectLoadout(cwd);
+        contexts = [
+          {
+            scope: "project",
+            configPath,
+            statePath: path.join(configPath, ".state.json"),
+            projectRoot: cwd,
+          },
+        ];
       }
-    } else {
-      loadoutPath = loadoutRoot.path;
-      projectRoot = path.dirname(loadoutRoot.path);
     }
 
-    console.log();
-    log.info("Scanning for existing configurations...");
+    const multipleScopes = contexts.length > 1;
+    let hasFailures = false;
 
-    try {
-      const result = await runInstall(projectRoot, loadoutPath, options);
+    for (const ctx of contexts) {
+      console.log();
+      const scopeLabel = ctx.scope === "global" ? " [global]" : " [project]";
+      log.info(`Scanning for existing configurations${multipleScopes ? scopeLabel : ""}...`);
 
-      if (result.failed > 0) {
+      try {
+        const result = await runInstall(ctx, options);
+        if (result.failed > 0) {
+          hasFailures = true;
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("cancelled")) {
+          continue;
+        }
+        log.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("cancelled")) {
-        process.exit(0);
-      }
-      log.error(err instanceof Error ? err.message : String(err));
+    }
+
+    if (hasFailures) {
       process.exit(1);
     }
   });

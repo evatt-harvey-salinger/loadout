@@ -188,9 +188,17 @@ Add your project-specific guidelines here.
       });
 
       if (answer !== "n" && answer !== "no") {
-        await runInstall(projectRoot, loadoutPath, {
+        await runInstall(
+          {
+            scope: "project",
+            configPath: loadoutPath,
+            statePath: path.join(loadoutPath, ".state.json"),
+            projectRoot,
+          },
+          {
           to: "base",
-        });
+          }
+        );
       } else {
         log.dim("Skipped. Run 'loadouts install' later to import existing configs.");
       }
