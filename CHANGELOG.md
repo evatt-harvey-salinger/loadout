@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-14
+
+### Added
+- Add OpenCode support with `.opencode` config and plugin management
+
+### Fixed
+- Fix global `.gitignore` updates so bundled artifacts are tracked correctly
+- Fix bundled OpenCode skill naming to use `loadout-usage`
+
 ## [0.1.15] - 2026-05-13
 
 ### Added
