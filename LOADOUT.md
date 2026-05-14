@@ -265,19 +265,19 @@ List all registered kinds with `loadouts kinds -v`.
 
 ### Supported Tools
 
-| Tool | Rules | Skills | Instructions |
-|------|-------|--------|--------------|
-| Claude Code | `.claude/rules/*.md` | `.claude/skills/` | `CLAUDE.md` (generated wrapper) |
-| Cursor | `.cursor/rules/*.mdc` | `.cursor/skills/` | `AGENTS.md` |
-| OpenCode | `.opencode/rules/*.md` | `.opencode/skills/` | `AGENTS.md` |
-| Codex | — | `.agents/skills/` | `AGENTS.md` |
-| Pi | `.pi/rules/*.md` | `.pi/skills/` | `AGENTS.md` |
+| Tool | Rules | Skills | Instructions | Extra Artifacts |
+|------|-------|--------|--------------|-----------------|
+| Claude Code | `.claude/rules/*.md` | `.claude/skills/` | `CLAUDE.md` (generated wrapper) | — |
+| Cursor | `.cursor/rules/*.mdc` | `.cursor/skills/` | `AGENTS.md` | — |
+| OpenCode | `.opencode/rules/*.md` | `.opencode/skills/` | `AGENTS.md` | `opencode.json(c)`, `.opencode/plugins/` |
+| Codex | — | `.agents/skills/` | `AGENTS.md` | — |
+| Pi | `.pi/rules/*.md` | `.pi/skills/` | `AGENTS.md` | `.pi/extensions/`, `.pi/themes/` |
 
 **Tool-specific notes:**
 
 - **Claude Code** — Generates a `CLAUDE.md` wrapper that references `AGENTS.md`, keeping both in sync.
 - **Cursor** — Rules use `.mdc` extension. Loadout automatically converts `paths` ↔ `globs` in frontmatter.
-- **OpenCode** — Rules require the `opencode-rules` plugin. Add `"opencode-rules"` to `plugins` in `opencode.json`.
+- **OpenCode** — Local plugins render to `.opencode/plugins/`. NPM plugins are configured with the `plugin` array in `opencode.json(c)`.
 - **Codex** — Rules not yet supported; skills and instructions only.
 
 ---

@@ -51,10 +51,7 @@ loadouts sync      # Re-render if needed
 
 **Cursor:** Rules need `.mdc` extension — loadouts handles this automatically. Restart Cursor if rules don't appear immediately.
 
-**OpenCode:** Rules require the `opencode-rules` plugin. Add to `opencode.json`:
-```json
-{ "plugins": ["opencode-rules"] }
-```
+**OpenCode:** Rules render to `.opencode/rules/`. Local plugins render to `.opencode/plugins/`, and NPM plugins are configured with the `plugin` array in `opencode.json(c)`.
 
 **Claude Code:** Verify rules exist in `.claude/rules/`. May require restarting the session.
 

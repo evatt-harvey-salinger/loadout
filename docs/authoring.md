@@ -142,6 +142,46 @@ include:
 
 ---
 
+## OpenCode Config And Plugins
+
+OpenCode-specific artifacts live under `.loadouts/opencode/` and only render when included in a loadout that targets `opencode`.
+
+**Whole-file config:**
+```jsonc
+// .loadouts/opencode/opencode.jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-wakatime"]
+}
+```
+
+Project scope renders this to `opencode.jsonc`. Global scope renders it to `~/.config/opencode/opencode.jsonc`. This is whole-file ownership; if you do not include this artifact, loadouts does not touch your OpenCode config file.
+
+**Local plugins:**
+```ts
+// .loadouts/opencode/plugins/notify.ts
+import type { Plugin } from "@opencode-ai/plugin";
+
+export const Notify: Plugin = async ({ $ }) => ({
+  "session.idle": async () => {
+    await $`osascript -e 'display notification "Session completed" with title "opencode"`;
+  },
+});
+```
+
+Project scope renders this to `.opencode/plugins/notify.ts`. Global scope renders it to `~/.config/opencode/plugins/notify.ts`.
+
+**Include in a loadout:**
+```yaml
+include:
+  - opencode/opencode.jsonc
+  - opencode/plugins/notify.ts
+```
+
+NPM plugins belong in the managed `opencode.json(c)` `plugin` array. Local plugin source files belong in `.loadouts/opencode/plugins/`.
+
+---
+
 ## Custom Kinds
 
 Define custom artifact types in `.loadouts/kinds/*.yaml`:

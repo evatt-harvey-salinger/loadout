@@ -8,7 +8,6 @@ import {
   inspectGitignoreHealth,
   rebuildAllGitignores,
   updateLoadoutsGitignore,
-  removeLegacyRootGitignoreSection,
 } from "../../lib/gitignore.js";
 import { heading, log } from "../../lib/output.js";
 
@@ -38,7 +37,6 @@ async function migrateGitignore(): Promise<void> {
 
     rebuildAllGitignores(loadoutsDir, projectRoot, scope);
     updateLoadoutsGitignore(loadoutsDir);
-    removeLegacyRootGitignoreSection(projectRoot);
 
     log.success(`Gitignore migration complete (${scope})`);
     migrated = true;

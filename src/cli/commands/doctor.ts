@@ -17,7 +17,6 @@ import {
   inspectGitignoreHealth,
   rebuildAllGitignores,
   updateLoadoutsGitignore,
-  removeLegacyRootGitignoreSection,
   type GitignoreHealthReport,
 } from "../../lib/gitignore.js";
 import { heading, log } from "../../lib/output.js";
@@ -117,8 +116,6 @@ export const doctorCommand = new Command("doctor")
 
       rebuildAllGitignores(info.rootPath, info.projectRoot, scope);
       updateLoadoutsGitignore(info.rootPath);
-      removeLegacyRootGitignoreSection(info.projectRoot);
-
       const after = inspectGitignoreHealth(info.rootPath, info.projectRoot, scope);
       remainingIssues += after.issues;
 

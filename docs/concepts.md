@@ -78,16 +78,18 @@ include:
 | `prompt` | file | Slash command templates |
 | `extension` | directory | Runtime code extensions |
 | `theme` | file | UI theme configuration |
+| `opencode-config` | file | Whole-file OpenCode runtime configuration |
+| `opencode-plugin` | file | Local OpenCode plugin modules |
 
 ## Supported Tools
 
-| Tool | Rules | Skills | Instructions |
-|------|-------|--------|--------------|
-| Claude Code | `.claude/rules/*.md` | `.claude/skills/` | `CLAUDE.md` |
-| Cursor | `.cursor/rules/*.mdc` | `.cursor/skills/` | `AGENTS.md` |
-| OpenCode | `.opencode/rules/*.md` | `.opencode/skills/` | `AGENTS.md` |
-| Codex | — | `.agents/skills/` | `AGENTS.md` |
-| Pi | `.pi/rules/*.md` | `.pi/skills/` | `AGENTS.md` |
+| Tool | Rules | Skills | Instructions | Extra Artifacts |
+|------|-------|--------|--------------|-----------------|
+| Claude Code | `.claude/rules/*.md` | `.claude/skills/` | `CLAUDE.md` | — |
+| Cursor | `.cursor/rules/*.mdc` | `.cursor/skills/` | `AGENTS.md` | — |
+| OpenCode | `.opencode/rules/*.md` | `.opencode/skills/` | `AGENTS.md` | `opencode.json(c)`, `.opencode/plugins/` |
+| Codex | — | `.agents/skills/` | `AGENTS.md` | — |
+| Pi | `.pi/rules/*.md` | `.pi/skills/` | `AGENTS.md` | `.pi/extensions/`, `.pi/themes/` |
 
 ## Sources (Cross-Project Config)
 

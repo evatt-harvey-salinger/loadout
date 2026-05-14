@@ -95,13 +95,13 @@ This adds a skill that triggers when agents are editing agent configuration (rul
 
 ## Supported Tools
 
-| Tool | Rules | Skills | Instructions |
-|------|-------|--------|--------------|
-| Claude Code | ✓ | ✓ | ✓ |
-| Cursor | ✓ | ✓ | ✓ |
-| OpenCode | ✓ | ✓ | ✓ |
-| Codex | — | ✓ | ✓ |
-| Pi | ✓ | ✓ | ✓ |
+| Tool | Rules | Skills | Instructions | Extra Artifacts |
+|------|-------|--------|--------------|-----------------|
+| Claude Code | ✓ | ✓ | ✓ | — |
+| Cursor | ✓ | ✓ | ✓ | — |
+| OpenCode | ✓ | ✓ | ✓ | config, plugins |
+| Codex | — | ✓ | ✓ | — |
+| Pi | ✓ | ✓ | ✓ | extensions, themes |
 
 ## License
 

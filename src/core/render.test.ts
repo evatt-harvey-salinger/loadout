@@ -313,3 +313,110 @@ describe("render symlinked base path safety", () => {
     expect(drift[0].status).toBe("ok");
   });
 });
+
+describe("render OpenCode-specific artifacts", () => {
+  let tmpDir: string;
+  let projectRoot: string;
+  let loadoutRoot: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "loadout-opencode-test-"));
+    projectRoot = path.join(tmpDir, "project");
+    loadoutRoot = path.join(projectRoot, ".loadouts");
+    fs.mkdirSync(loadoutRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("renders a local OpenCode plugin into .opencode/plugins", async () => {
+    const sourcePath = path.join(loadoutRoot, "opencode", "plugins", "notify.ts");
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, "export const Notify = async () => ({})\n", "utf-8");
+
+    const item: ResolvedItem = {
+      kind: "opencode-plugin",
+      sourcePath,
+      relativePath: "opencode/plugins/notify.ts",
+      tools: ["opencode"],
+    };
+    const plan: RenderPlan = {
+      outputs: [
+        {
+          spec: {
+            tool: "opencode",
+            kind: "opencode-plugin",
+            sourcePath,
+            targetPath: ".opencode/plugins/notify.ts",
+            mode: "symlink",
+          },
+          item,
+          hash: hashContent(fs.readFileSync(sourcePath, "utf-8")),
+        },
+      ],
+      errors: [],
+      shadowed: [],
+    };
+    const loadout: ResolvedLoadout = {
+      name: "test",
+      description: "",
+      tools: ["opencode"],
+      items: [item],
+      rootPath: loadoutRoot,
+    };
+
+    await applyPlan(plan, loadout, projectRoot, "symlink", "project");
+
+    const outputPath = path.join(projectRoot, ".opencode/plugins/notify.ts");
+    expect(fs.lstatSync(outputPath).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(outputPath)).toBe(fs.realpathSync(sourcePath));
+  });
+
+  it("renders whole-file OpenCode config to the project root", async () => {
+    const sourcePath = path.join(loadoutRoot, "opencode", "opencode.jsonc");
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(
+      sourcePath,
+      '{ "$schema": "https://opencode.ai/config.json", "plugin": [] }\n',
+      "utf-8"
+    );
+
+    const item: ResolvedItem = {
+      kind: "opencode-config",
+      sourcePath,
+      relativePath: "opencode/opencode.jsonc",
+      tools: ["opencode"],
+    };
+    const plan: RenderPlan = {
+      outputs: [
+        {
+          spec: {
+            tool: "opencode",
+            kind: "opencode-config",
+            sourcePath,
+            targetPath: "opencode.jsonc",
+            mode: "symlink",
+          },
+          item,
+          hash: hashContent(fs.readFileSync(sourcePath, "utf-8")),
+        },
+      ],
+      errors: [],
+      shadowed: [],
+    };
+    const loadout: ResolvedLoadout = {
+      name: "test",
+      description: "",
+      tools: ["opencode"],
+      items: [item],
+      rootPath: loadoutRoot,
+    };
+
+    await applyPlan(plan, loadout, projectRoot, "symlink", "project");
+
+    const outputPath = path.join(projectRoot, "opencode.jsonc");
+    expect(fs.lstatSync(outputPath).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(outputPath)).toBe(fs.realpathSync(sourcePath));
+  });
+});

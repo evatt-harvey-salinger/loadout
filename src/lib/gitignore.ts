@@ -1,12 +1,13 @@
 /**
  * Gitignore management — per-target .gitignore files.
  *
- * Each tool's output directory (e.g., .claude/, .cursor/) gets its own
- * .gitignore with paths relative to that directory. This ensures:
+ * Each output boundary gets its own .gitignore with paths relative to that
+ * directory. Tool outputs use the tool directory (e.g., .claude/, .cursor/),
+ * while root-level outputs use the project/global root. This ensures:
  *
  *  - All artifacts are ignored regardless of activation state
  *  - Global scope is supported (same mechanism, absolute target dirs)
- *  - The project root .gitignore is not cluttered with tool-specific paths
+ *  - The project root .gitignore only contains root-level managed outputs
  *
  * Gitignore is part of the artifact lifecycle (add/delete/import), not the
  * render pipeline. Updates happen when artifacts are created or removed,
@@ -25,7 +26,6 @@ import {
   readFile,
   writeFile,
   listFiles,
-  listFilesWithExtension,
   isDirectory,
 } from "./fs.js";
 import { registry } from "../core/registry.js";
@@ -42,8 +42,6 @@ const LEGACY_END_MARKER = "# </loadout>";
 
 // Paths always ignored within .loadouts/
 const LOADOUTS_STATE_PATHS = [".fallback-applied", ".state.json"];
-
-const MANAGED_ARTIFACT_KINDS = new Set(["rule", "skill"]);
 
 // ---------------------------------------------------------------------------
 // Core write function
@@ -69,13 +67,20 @@ function updateGitignoreFile(gitignorePath: string, managedPaths: string[]): voi
   }
 
   const content = readFile(gitignorePath);
-  const startIdx = content.indexOf(START_MARKER);
-  const endIdx = content.indexOf(END_MARKER);
+  let startIdx = content.indexOf(START_MARKER);
+  let endIdx = content.indexOf(END_MARKER);
+  let markerLength = END_MARKER.length;
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    startIdx = content.indexOf(LEGACY_START_MARKER);
+    endIdx = content.indexOf(LEGACY_END_MARKER);
+    markerLength = LEGACY_END_MARKER.length;
+  }
 
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
     // Replace existing section
     const before = content.slice(0, startIdx).trimEnd();
-    const after = content.slice(endIdx + END_MARKER.length).trimStart();
+    const after = content.slice(endIdx + markerLength).trimStart();
 
     const parts = [before];
     if (managedSection) parts.push(managedSection);
@@ -125,13 +130,12 @@ export function updateLoadoutsGitignore(loadoutsDir: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute gitignore paths for an artifact, grouped by target directory.
+ * Compute gitignore paths for an artifact, grouped by gitignore directory.
  *
- * Returns a Map of targetBase (as stored in tool.basePath[scope]) →
- * relative paths within that directory.
- *
- * Instruction artifacts (CLAUDE.md, AGENTS.md) that resolve outside the
- * tool's base directory are automatically excluded.
+ * Returns a Map of gitignore base directory → relative paths within that
+ * directory. Outputs under a tool base use that tool base. Outputs outside the
+ * tool base (for example AGENTS.md or opencode.jsonc at project root) use the
+ * project/global root.
  */
 export function computeArtifactGitignorePaths(
   kindId: string,
@@ -141,24 +145,37 @@ export function computeArtifactGitignorePaths(
   const kind = registry.getKind(kindId);
   if (!kind) return new Map();
 
+  const relativePath = synthesizeArtifactRelativePath(kindId, artifactName, kind.layout);
+  const sourcePath = path.join(os.tmpdir(), "loadouts-gitignore", relativePath);
+  return computeSourceArtifactGitignorePaths(kindId, relativePath, sourcePath, scope);
+}
+
+function computeSourceArtifactGitignorePaths(
+  kindId: string,
+  relativePath: string,
+  sourcePath: string,
+  scope: Scope
+): Map<string, string[]> {
+  const kind = registry.getKind(kindId);
+  if (!kind) return new Map();
+
   const byTarget = new Map<string, string[]>();
 
   for (const tool of registry.allTools()) {
-    if (!tool.supports.includes(kindId)) continue;
-
     const mapping = registry.resolveMapping(tool.name, kindId);
     if (!mapping) continue;
 
     const targetBase = tool.basePath[scope];
-    const ext = mapping.ext ?? (kind.layout === "file" ? ".md" : "");
+    const sourceExt = path.extname(sourcePath);
+    const ext = mapping.ext ?? sourceExt;
 
     const vars: TemplateVars = {
       base: targetBase,
       home: os.homedir(),
-      stem: artifactName,
+      stem: path.basename(sourcePath, sourceExt),
       ext,
-      name: artifactName,
-      relative: `${kindId}s/${artifactName}${ext}`,
+      name: path.basename(sourcePath),
+      relative: relativePath,
       kind: kindId,
     };
 
@@ -167,24 +184,19 @@ export function computeArtifactGitignorePaths(
 
     try {
       const expandedPath = expandTemplate(pathTemplate, scope, vars);
+      const target = getGitignoreTarget(expandedPath, targetBase, scope);
+      if (!target) continue;
 
-      // Compute the relative path within the target directory
-      const relPath = path.relative(targetBase, expandedPath);
-
-      // Skip if the path escapes the target directory (e.g., instruction
-      // artifacts that expand to CLAUDE.md or AGENTS.md at the project root)
-      if (relPath.startsWith("..")) continue;
-
-      const existing = byTarget.get(targetBase) ?? [];
+      const existing = byTarget.get(target.base) ?? [];
 
       if (kind.layout === "dir") {
         // Dir-layout: use trailing slash so all files within are covered
-        existing.push(relPath.endsWith("/") ? relPath : relPath + "/");
+        existing.push(target.relativePath.endsWith("/") ? target.relativePath : target.relativePath + "/");
       } else {
-        existing.push(relPath);
+        existing.push(target.relativePath);
       }
 
-      byTarget.set(targetBase, existing);
+      byTarget.set(target.base, existing);
     } catch {
       // Skip if template expansion fails
     }
@@ -200,7 +212,7 @@ export function computeArtifactGitignorePaths(
 /**
  * Rebuild gitignore entries for all artifacts in the loadouts directory.
  *
- * Scans all rules and skills and writes per-target .gitignore files so that
+ * Scans all artifacts and writes per-target .gitignore files so that
  * every artifact is ignored regardless of whether it is currently activated.
  * Called after artifact add/delete/import.
  *
@@ -297,7 +309,7 @@ export function inspectGitignoreHealth(
   const actualStatePaths = normalizePaths(getManagedPathsFromTarget(loadoutsDir));
   const loadoutsStateOutOfDate = !samePaths(expectedStatePaths, actualStatePaths);
 
-  const hasLegacyRootSection = hasLegacyRootGitignoreSection(projectRoot);
+  const hasLegacyRootSection = hasOldRootGitignoreSection(projectRoot);
 
   const issues =
     targetMismatches.length +
@@ -396,36 +408,140 @@ function hasMarkerSection(
   return startIdx !== -1 && endIdx !== -1 && endIdx > startIdx;
 }
 
+function hasOldRootGitignoreSection(projectRoot: string): boolean {
+  const gitignorePath = path.join(projectRoot, ".gitignore");
+  if (!fileExists(gitignorePath)) return false;
+
+  const content = readFile(gitignorePath);
+  return hasMarkerSection(content, LEGACY_START_MARKER, LEGACY_END_MARKER);
+}
+
 function collectArtifactPathsByTarget(
   loadoutsDir: string,
   scope: Scope
 ): Map<string, string[]> {
-  const rulesDir = path.join(loadoutsDir, "rules");
-  const skillsDir = path.join(loadoutsDir, "skills");
-
   const allByTarget = new Map<string, string[]>();
 
-  for (const file of listFilesWithExtension(rulesDir, ".md")) {
-    const name = file.replace(/\.md$/, "");
-    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("rule", name, scope));
-  }
-
-  for (const name of listFiles(skillsDir).filter((d) =>
-    isDirectory(path.join(skillsDir, d))
-  )) {
-    mergeIntoMap(allByTarget, computeArtifactGitignorePaths("skill", name, scope));
+  for (const artifact of collectArtifacts(loadoutsDir)) {
+    mergeIntoMap(
+      allByTarget,
+      computeSourceArtifactGitignorePaths(
+        artifact.kindId,
+        artifact.relativePath,
+        artifact.sourcePath,
+        scope
+      )
+    );
   }
 
   return allByTarget;
 }
 
 function getManagedTargetBases(scope: Scope): string[] {
-  const bases = new Set<string>();
+  const bases = new Set<string>([getRootGitignoreBase(scope)]);
   for (const tool of registry.allTools()) {
-    if (!tool.supports.some((kind) => MANAGED_ARTIFACT_KINDS.has(kind))) continue;
     bases.add(tool.basePath[scope]);
   }
   return [...bases];
+}
+
+interface ArtifactRef {
+  kindId: string;
+  relativePath: string;
+  sourcePath: string;
+}
+
+function collectArtifacts(loadoutsDir: string): ArtifactRef[] {
+  const artifacts: ArtifactRef[] = [];
+
+  function walk(relativeDir: string): void {
+    const absDir = path.join(loadoutsDir, relativeDir);
+
+    for (const entry of listFiles(absDir).sort()) {
+      const relativePath = relativeDir ? path.join(relativeDir, entry) : entry;
+      const sourcePath = path.join(loadoutsDir, relativePath);
+
+      if (isDirectory(sourcePath)) {
+        const kindId = registry.inferKind(relativePath);
+        const kind = kindId ? registry.getKind(kindId) : undefined;
+        if (kindId && kind?.layout === "dir") {
+          artifacts.push({ kindId, relativePath, sourcePath });
+          continue;
+        }
+
+        walk(relativePath);
+        continue;
+      }
+
+      const kindId = registry.inferKind(relativePath);
+      const kind = kindId ? registry.getKind(kindId) : undefined;
+      if (kindId && kind?.layout === "file") {
+        artifacts.push({ kindId, relativePath, sourcePath });
+      }
+    }
+  }
+
+  walk("");
+  return artifacts;
+}
+
+function synthesizeArtifactRelativePath(
+  kindId: string,
+  artifactName: string,
+  layout: "file" | "dir"
+): string {
+  if (kindId === "rule") return `rules/${artifactName}.md`;
+  if (kindId === "skill") return `skills/${artifactName}`;
+  if (kindId === "instruction") return `instructions/${artifactName}.md`;
+  if (kindId === "prompt") return `prompts/${artifactName}.md`;
+  if (kindId === "extension") return `extensions/${withDefaultExtension(artifactName, ".ts")}`;
+  if (kindId === "theme") return `themes/${withDefaultExtension(artifactName, ".json")}`;
+  if (kindId === "opencode-config") return `opencode/${withDefaultExtension(artifactName, ".jsonc")}`;
+  if (kindId === "opencode-plugin") return `opencode/plugins/${withDefaultExtension(artifactName, ".ts")}`;
+  return layout === "dir" ? `${kindId}s/${artifactName}` : `${kindId}s/${artifactName}.md`;
+}
+
+function withDefaultExtension(name: string, ext: string): string {
+  return path.extname(name) ? name : `${name}${ext}`;
+}
+
+interface GitignoreTarget {
+  base: string;
+  relativePath: string;
+}
+
+function getGitignoreTarget(
+  targetPath: string,
+  toolBase: string,
+  scope: Scope
+): GitignoreTarget | null {
+  const normalizedTarget = path.normalize(targetPath);
+  const normalizedBase = path.normalize(toolBase);
+  const relativeToToolBase = path.relative(normalizedBase, normalizedTarget);
+
+  if (
+    relativeToToolBase &&
+    !relativeToToolBase.startsWith("..") &&
+    !path.isAbsolute(relativeToToolBase)
+  ) {
+    return { base: toolBase, relativePath: relativeToToolBase };
+  }
+
+  if (!path.isAbsolute(normalizedTarget)) {
+    return {
+      base: getRootGitignoreBase(scope),
+      relativePath: normalizedTarget,
+    };
+  }
+
+  return {
+    base: path.dirname(normalizedTarget),
+    relativePath: path.basename(normalizedTarget),
+  };
+}
+
+function getRootGitignoreBase(scope: Scope): string {
+  return scope === "project" ? "." : os.homedir();
 }
 
 function normalizePaths(paths: string[]): string[] {

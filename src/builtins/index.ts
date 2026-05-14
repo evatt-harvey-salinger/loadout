@@ -14,6 +14,8 @@ import { instructionKind } from "./kinds/instruction.js";
 import { promptKind } from "./kinds/prompt.js";
 import { extensionKind } from "./kinds/extension.js";
 import { themeKind } from "./kinds/theme.js";
+import { opencodeConfigKind } from "./kinds/opencode-config.js";
+import { opencodePluginKind } from "./kinds/opencode-plugin.js";
 import { claudeCodeTool } from "./tools/claude-code.js";
 import { cursorTool } from "./tools/cursor.js";
 import { opencodeTool } from "./tools/opencode.js";
@@ -51,6 +53,8 @@ export function registerBuiltins(api: PluginAPI): void {
   api.registerKind(promptKind);
   api.registerKind(extensionKind);
   api.registerKind(themeKind);
+  api.registerKind(opencodeConfigKind);
+  api.registerKind(opencodePluginKind);
 
   // Named transforms — referenced by name in tool target specs.
   api.registerTransform("cursor-frontmatter", mirrorPathsAndGlobs);

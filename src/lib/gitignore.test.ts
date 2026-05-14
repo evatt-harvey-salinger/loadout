@@ -251,16 +251,20 @@ describe("gitignore", () => {
       expect(allPaths.some((p) => p.includes(".opencode"))).toBe(true);
     });
 
-    it("excludes instruction artifacts that escape the target directory", () => {
-      // Instructions expand to CLAUDE.md / AGENTS.md at the project root,
-      // which is outside .claude/ or .opencode/ — they should be skipped
+    it("includes instruction artifacts in the root gitignore target", () => {
       const result = computeArtifactGitignorePaths("instruction", "AGENTS.base", "project");
-      // Either empty or all relative paths should not start with ".."
-      for (const paths of result.values()) {
-        for (const p of paths) {
-          expect(p.startsWith("..")).toBe(false);
-        }
-      }
+      expect(result.get(".")).toContain("AGENTS.md");
+      expect(result.get(".")).toContain("CLAUDE.md");
+    });
+
+    it("includes OpenCode plugins under the OpenCode target directory", () => {
+      const result = computeArtifactGitignorePaths("opencode-plugin", "notify.ts", "project");
+      expect(result.get(".opencode")).toEqual(["plugins/notify.ts"]);
+    });
+
+    it("includes OpenCode config in the root gitignore target", () => {
+      const result = computeArtifactGitignorePaths("opencode-config", "opencode.jsonc", "project");
+      expect(result.get(".")).toEqual(["opencode.jsonc"]);
     });
 
     it("returns empty map for unknown kind", () => {
@@ -385,6 +389,83 @@ describe("gitignore", () => {
       expect(content).toContain("*.log");
       expect(content).not.toContain("# <loadouts>");
       expect(getManagedPathsFromTarget(claudeDir)).toEqual([]);
+    });
+
+    it("writes root .gitignore entries for root-level artifacts", () => {
+      fs.mkdirSync(path.join(loadoutsDir, "instructions"), { recursive: true });
+      fs.mkdirSync(path.join(loadoutsDir, "opencode"), { recursive: true });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "instructions", "AGENTS.base.md"),
+        "# Instructions\n"
+      );
+      fs.writeFileSync(
+        path.join(loadoutsDir, "opencode", "opencode.jsonc"),
+        "{}\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const rootPaths = getManagedPathsFromTarget(tmpDir);
+      expect(rootPaths).toContain("AGENTS.md");
+      expect(rootPaths).toContain("CLAUDE.md");
+      expect(rootPaths).toContain("opencode.jsonc");
+    });
+
+    it("writes OpenCode plugin entries to .opencode/.gitignore", () => {
+      fs.mkdirSync(path.join(loadoutsDir, "opencode", "plugins"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "opencode", "plugins", "notify.ts"),
+        "export const Notify = async () => ({})\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const opencodePaths = getManagedPathsFromTarget(
+        path.join(tmpDir, ".opencode")
+      );
+      expect(opencodePaths).toContain("plugins/notify.ts");
+    });
+
+    it("writes Pi extension and theme entries to .pi/.gitignore", () => {
+      fs.mkdirSync(path.join(loadoutsDir, "extensions"), { recursive: true });
+      fs.mkdirSync(path.join(loadoutsDir, "themes"), { recursive: true });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "extensions", "tmux.ts"),
+        "export default {}\n"
+      );
+      fs.writeFileSync(
+        path.join(loadoutsDir, "themes", "dark.json"),
+        "{}\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const piPaths = getManagedPathsFromTarget(path.join(tmpDir, ".pi"));
+      expect(piPaths).toContain("extensions/tmux.ts");
+      expect(piPaths).toContain("themes/dark.json");
+    });
+
+    it("replaces old root managed sections with current root artifact entries", () => {
+      fs.writeFileSync(
+        path.join(tmpDir, ".gitignore"),
+        `node_modules/\n\n# <loadout>\n.claude/rules/old.md\n# </loadout>\n`
+      );
+      fs.mkdirSync(path.join(loadoutsDir, "opencode"), { recursive: true });
+      fs.writeFileSync(
+        path.join(loadoutsDir, "opencode", "opencode.jsonc"),
+        "{}\n"
+      );
+
+      rebuildAllGitignores(loadoutsDir, tmpDir, "project");
+
+      const content = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf-8");
+      expect(content).toContain("node_modules/");
+      expect(content).toContain("# <loadouts>");
+      expect(content).toContain("opencode.jsonc");
+      expect(content).not.toContain("# <loadout>");
+      expect(content).not.toContain(".claude/rules/old.md");
     });
   });
 
