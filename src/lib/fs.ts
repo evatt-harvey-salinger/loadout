@@ -65,7 +65,8 @@ export function readSymlinkTarget(linkPath: string): string | null {
     if (path.isAbsolute(target)) {
       return target;
     }
-    return path.resolve(path.dirname(linkPath), target);
+    const realLinkDir = fs.realpathSync(path.dirname(linkPath));
+    return path.resolve(realLinkDir, target);
   } catch {
     return null;
   }

@@ -29,6 +29,7 @@ import {
   isDirectory,
 } from "./fs.js";
 import { registry } from "../core/registry.js";
+import { getBundledRoot } from "../core/discovery.js";
 import { expandTemplate, type TemplateVars } from "../core/template.js";
 import type { Scope } from "../core/types.js";
 
@@ -422,19 +423,39 @@ function collectArtifactPathsByTarget(
 ): Map<string, string[]> {
   const allByTarget = new Map<string, string[]>();
 
-  for (const artifact of collectArtifacts(loadoutsDir)) {
-    mergeIntoMap(
-      allByTarget,
-      computeSourceArtifactGitignorePaths(
-        artifact.kindId,
-        artifact.relativePath,
-        artifact.sourcePath,
-        scope
-      )
-    );
+  const roots = [loadoutsDir, ...getSupplementalArtifactRoots(loadoutsDir, scope)];
+
+  for (const root of roots) {
+    for (const artifact of collectArtifacts(root)) {
+      mergeIntoMap(
+        allByTarget,
+        computeSourceArtifactGitignorePaths(
+          artifact.kindId,
+          artifact.relativePath,
+          artifact.sourcePath,
+          scope
+        )
+      );
+    }
   }
 
   return allByTarget;
+}
+
+function getSupplementalArtifactRoots(loadoutsDir: string, scope: Scope): string[] {
+  // Bundled artifacts should contribute to global ignore expectations when
+  // global loadouts are managed from ~/.config/loadouts.
+  if (scope !== "global") return [];
+  if (!isGlobalLoadoutsDir(loadoutsDir)) return [];
+
+  const bundled = getBundledRoot();
+  if (!bundled) return [];
+  return [bundled.path];
+}
+
+function isGlobalLoadoutsDir(loadoutsDir: string): boolean {
+  const expected = path.resolve(os.homedir(), ".config", "loadouts");
+  return path.resolve(loadoutsDir) === expected;
 }
 
 function getManagedTargetBases(scope: Scope): string[] {
