@@ -2,4 +2,4 @@ name: loadouts
 description: Self-documenting instructions for using loadouts CLI
 
 include:
-  - skills/loadout-usage
+  - skills/loadouts-usage

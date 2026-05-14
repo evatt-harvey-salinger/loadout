@@ -87,7 +87,7 @@ Or read the full reference: [LOADOUT.md](LOADOUT.md)
 Loadout includes a bundled skill that teaches AI agents how to use it:
 
 ```bash
-loadouts skill import --builtin loadout-usage
+loadouts skill import --builtin loadouts-usage
 loadouts sync
 ```
 

@@ -1,5 +1,5 @@
 ---
-name: loadout-usage
+name: loadouts-usage
 description: Use this skill when creating, editing, or managing AI agent configuration—including rules, skills, instructions, hooks, loadouts, or any artifacts in .loadouts/. Provides guidance on loadouts CLI and authoring patterns.
 ---
 

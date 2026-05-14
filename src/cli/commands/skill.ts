@@ -355,7 +355,7 @@ skillCommand
   .argument("[path]", "Path to existing skill directory (or use --builtin)")
   .option("-l, --local", "Project scope")
   .option("-g, --global", "Global scope")
-  .option("--builtin <name>", "Import a bundled skill (e.g., loadout-usage)")
+  .option("--builtin <name>", "Import a bundled skill (e.g., loadouts-usage)")
   .option("--list-builtins", "List available bundled skills")
   .option("--loadout <name>", "Loadout to add skill to", "base")
   .option("--keep", "Keep original directory (don't delete after import)")
